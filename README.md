@@ -8,9 +8,16 @@ grounded in those notes so it cannot invent facts.
 - **Quiz**: multiple-choice questions generated *from* your notes. Wrong options are real terms from your other
   notes, never invented. Every result is tracked per topic.
 - **Review & plan**: an SM-2 spaced-review queue, plus a study plan that gives the most time to your weakest topics.
+- **Simplify**: explains a lecture's notes in layers, first one plain paragraph and then the full-depth version.
+- **Examples**: real-life examples of a concept, each labelled as *from your notes* or *illustrative*.
+- **Reminders**: a "due today" digest and an `.ics` calendar of upcoming reviews.
+- **Progress**: per-topic accuracy trend over time, shown next to the cards that are due.
+- **Cram**: a short rapid-fire quiz on your weakest topics before an exam, recorded like any other quiz.
 
-Answering and quiz writing use an LLM you choose (any OpenAI-compatible chat-completions API, your own key).
-Without a key, a clearly labelled **local fallback** runs entirely offline.
+Answering and quiz writing use an LLM you choose: **Claude through your signed-in Claude Code CLI** (no key,
+no signup beyond the Claude account you already have) or any OpenAI-compatible chat-completions API with your
+own key. Without either, a clearly labelled **local fallback** runs entirely offline. Both LLM paths have been
+run against a real model on a 20-question, 3-quiz evaluation: see [docs/EVAL_LLM.md](docs/EVAL_LLM.md).
 
 Python 3.11+, **standard library only**: nothing to `pip install`.
 
@@ -142,22 +149,188 @@ Study plan for 2026-10-31 (60 minutes, weakest topics first):
 **weak topics** table, **key facts** for each topic (weakest first), each with its chunk id, and **quiz misses**
 with the correct answer and how many times you missed it. `--format json` gives the same data as JSON.
 
+### 6. School features: simplify, examples, reminders, progress, cram
+
+Every header says what produced the output. **LLM features** (`simplify`, `examples`, and `cram` when an
+LLM writes the questions) use the same providers as `ask` and `quiz` and name the one that ran, e.g.
+`== SIMPLIFY by LLM (Claude CLI: sonnet), ... ==`. **Local-data features** (`due`, `progress`,
+`export --format ics`, and `plan`) say `local data, no LLM`. Without an LLM, `simplify` and `examples` fall back
+to a clearly labelled extract of your notes. They never pass local output off as LLM output. With `--llm` or
+`--provider claude|openai` a missing LLM is an error instead.
+
+**Simplify** (LLM). Pick the notes with a query (TF-IDF lookup, same refusal threshold as `ask`), `--topic`,
+`--chunk ID` (repeatable) or `--file NOTE.md`. Layer 1 is one plain paragraph of at most about 90 words;
+layer 2 is the full-depth version with a `[chunk-id]` on every sentence. Both are validated (one paragraph,
+known ids, every layer-2 sentence cited), with one repair and then rejection, as for `ask`.
+
+```console
+$ python3 -m course_compass simplify --topic elasticity --provider claude
+== SIMPLIFY by LLM (Claude CLI: sonnet), grounded in your notes: topic "elasticity" ==
+
+-- Layer 1: the simple version --
+Elasticity tells you how much buying changes when something else changes, usually the price. If a small price
+rise makes people buy a lot less, demand is elastic. If people barely change what they buy, it is inelastic. ...
+[elasticity#1][elasticity#2][elasticity#4] ...
+
+-- Layer 2: the full-depth version --
+Elasticity measures how strongly one quantity responds to a change in another, and in markets it is expressed in
+percentage terms so that units do not matter [elasticity#1]. Price elasticity of demand is ... [elasticity#2]. ...
+```
+
+With no LLM the header reads `SIMPLIFY: LOCAL EXTRACTIVE APPROXIMATION (no LLM, not a simplification)`, layer 1 is
+the three most central sentences quoted verbatim, and layer 2 is the notes themselves.
+
+**Examples** (LLM). Each example is either `[FROM YOUR NOTES: chunk-id]` (the notes state it, and it must cite
+that chunk) or `[ILLUSTRATIVE, not from your notes; illustrates chunk-id]` (the model's own example, which may
+cite nothing). The code rejects an example labelled grounded with no citation, or one that shares almost no
+wording with the chunk it cites, and an illustrative example that claims a citation.
+
+```console
+$ python3 -m course_compass examples "inelastic demand" --provider claude
+== EXAMPLES by LLM (Claude CLI: sonnet) for "inelastic demand": grounded ones cite your notes ==
+  1. [FROM YOUR NOTES: elasticity#4, elasticity#2]
+     Basic medicine is a necessity, so demand for it tends to be inelastic: ...
+  3. [ILLUSTRATIVE, not from your notes; illustrates elasticity#2]
+     Insulin for a person with type 1 diabetes has no close substitute and is essential, so ...
+```
+
+Without an LLM, `examples` quotes note sentences that mention a use or case ("such as", "use ... to predict",
+"during ...") and makes nothing up.
+
+**Due today** (local). The SM-2 queue grouped by topic: most overdue and hardest first, in plain words.
+
+```console
+$ python3 -m course_compass due --today 2026-11-01
+== Due for review on 2026-11-01 (local data, no LLM: your SM-2 review queue) ==
+6 card(s) across 2 topic(s), most overdue and hardest first.
+
+cell-respiration: 3 card(s), oldest 1 day overdue
+  - 1 day overdue, shaky (ease 1.96): Which term from your notes matches this definition: "the first stage, ..."?
+...
+elasticity: 3 card(s), oldest due today, 2 you keep finding hard
+  - due today, hard (ease 1.42): Which term from your notes matches this definition: "demand whose ..."?
+```
+
+"new" means never answered, "hard" means ease below 1.7, "shaky" means below the starting 2.5, and "steady"
+covers everything else.
+
+**Calendar export** (local). `export --format ics` writes an RFC 5545 calendar that Google Calendar, Apple
+Calendar and Outlook can import. It has **one all-day event per topic per due date** ("Review elasticity:
+3 cards", with the questions in the description), not one per card, because ten card events on one day are
+noise in a calendar. Overdue cards go on `--today`. `--days` (default 14) sets how far ahead to look. Text is
+escaped and lines are folded at 75 octets with CRLF endings. UIDs are stable, so re-importing updates events
+instead of duplicating them.
+
+```console
+$ python3 -m course_compass export --format ics --days 30 --out reviews.ics
+Wrote 3 review event(s) (7 card(s), one all-day event per topic per due date, 2026-11-01 to +30 days; local data, no LLM) to reviews.ics
+```
+
+**Progress** (local). For each topic, weakest first: the record, the **trend** (accuracy over the first half
+of that topic's attempts against the second half, after at least 4 attempts), accuracy by day, the due cards
+and how many of them you missed last time, and one sentence linking the two. With no attempts it says so and
+shows no trend. `plan` now shows the same trend on each line.
+
+```console
+$ python3 -m course_compass progress --today 2026-11-01
+== Progress on 2026-11-01 (local data, no LLM: your quiz and review history) ==
+13 attempt(s) since 2026-10-30. Weakest topics first. ...
+
+1. cell-respiration (0/3 correct, weakness 0.80)
+   trend: 3 attempt(s), need 4 for a trend
+   by day: 2026-10-30 0/3  (3 from cram)
+   due now: 3 card(s), 3 missed last time
+   Too little history for a trend yet; 3 card(s) due, 3 missed last time.
+...
+4. elasticity (5/10 correct, weakness 0.50)
+   trend: improving 20% -> 80%
+   by day: 2026-10-30 1/6, 2026-10-31 4/4  (2 from cram)
+   due now: 3 card(s)
+   Improving; 3 card(s) due, and reviewing them on time locks the gain in.
+```
+
+**Cram** (LLM or local, same labels as `quiz`). A short session (`--n`, default 5, max 10) on the `--topics`
+weakest topics (default 2) that have definitions to quiz on. The questions are dealt round-robin from the
+weakest topic, so it never gets fewer than the others. Answers go through the same grading as `quiz`, so they
+update the same SM-2 cards and attempt history (marked `session: cram`), and `progress` and `plan` see them.
+The default local seed is the number of attempts so far, so each new session differs while showing and then
+answering one session gives the same questions.
+
+```console
+$ python3 -m course_compass cram --n 5 --today 2026-10-30
+== CRAM: 5 rapid-fire question(s), weakest topics first: cell-respiration (weakness 0.50), elasticity (weakness 0.50) ==
+== LOCAL FALLBACK quiz (template questions built from your definitions, no LLM) ==
+...
+$ python3 -m course_compass cram --n 5 --today 2026-10-30 --answers D,C,A,C,C
+...
+Cram score: 5/5. Saved to the same review cards and history; run `progress` to see the movement.
+```
+
 ### Commands
 
 | Command | What it does | Useful options |
 |---|---|---|
 | `ingest PATHS...` | Chunk and index notes (replaces previous chunks) | `--allow-dir`, `--max-words` (80), `--overlap` (20) |
-| `ask "QUESTION"` | Cited answer or refusal | `--llm` / `--local`, `--threshold` (0.15), `-k` (4) |
-| `quiz` | Generate questions, save them as review cards, optionally grade | `--topic`, `--n` (5, max 20), `--answers`, `-i`, `--seed`, `--llm` / `--local` |
+| `ask "QUESTION"` | Cited answer or refusal | `--provider claude\|openai\|local`, `--llm` / `--local`, `--threshold` (0.15), `-k` (4) |
+| `quiz` | Generate questions, save them as review cards, optionally grade | `--topic`, `--n` (5, max 20), `--answers`, `-i`, `--seed`, `--provider`, `--llm` / `--local` |
 | `review` | Due cards, most overdue / hardest first | `--answers`, `-i`, `--limit` (10), `--today` |
-| `plan` | Minutes per topic, weakest first | `--minutes` (60), `--today` |
-| `export` | Study sheet | `--format markdown\|json`, `--out FILE` |
+| `plan` | Minutes per topic, weakest first, with each topic's trend | `--minutes` (60), `--today` |
+| `export` | Study sheet, or an `.ics` calendar of upcoming reviews | `--format markdown\|json\|ics`, `--days` (14, ics), `--out FILE` |
+| `simplify [QUERY]` | Layered explanation: simple paragraph, then full depth (LLM; labelled extract without one) | `--topic`, `--chunk ID`, `--file`, `--provider`, `--llm` / `--local` |
+| `examples "CONCEPT"` | Real-life examples labelled from-your-notes or illustrative (LLM; labelled extract without one) | `--n` (4, max 8), `--topic`, `--chunk`, `--file`, `--provider` |
+| `due` | Cards due today by topic, most overdue / hardest first (local) | `--limit` (5 per topic), `--today` |
+| `progress` | Per-topic trend over time and due cards (local) | `--today` |
+| `cram` | Short quiz on the weakest topics, recorded to SM-2 and history | `--n` (5, max 10), `--topics` (2), `--answers`, `-i`, `--seed`, `--provider` |
 | `eval PATHS...` | Retrieval benchmark across chunk sizes | `--questions`, `--sizes`, `--overlaps`, `--threshold` |
 
 Exit codes: `0` success (a "Not in your notes." refusal counts as success), `2` for any error (bad input,
-no database, missing key with `--llm`, LLM output rejected after repair). Errors go to stderr as `error: ...`.
+no database, missing key with `--llm`, a requested LLM provider that is unavailable, LLM output rejected after
+repair). Errors go to stderr as `error: ...`.
 
-## LLM setup (bring your own key)
+## LLM setup
+
+### Choosing a provider
+
+| How you ask | What runs |
+|---|---|
+| `--provider claude` or `COURSE_COMPASS_PROVIDER=claude` | Claude via your signed-in Claude Code CLI. **Error** (exit 2) if `claude` is missing or not signed in. |
+| `--provider openai` or `COURSE_COMPASS_PROVIDER=openai` | The OpenAI-compatible API. **Error** if `COURSE_COMPASS_API_KEY` is not set. |
+| `--provider local`, `--local`, or `COURSE_COMPASS_PROVIDER=local` | The offline fallback, labelled as such. |
+| `--llm` | The provider in `COURSE_COMPASS_PROVIDER` if set, otherwise `openai` (so it needs a key, as before). |
+| nothing | `openai` if `COURSE_COMPASS_API_KEY` is set, otherwise the local fallback with a one-line notice (as before). |
+
+The flag wins over the environment variable. An LLM you asked for is never silently swapped for the local
+fallback: if it can't run, the command fails with the reason. The output header always names what ran:
+`== LLM answer (Claude CLI: sonnet), grounded in your notes ==`, `== LLM answer, grounded in your notes ==`
+(OpenAI-compatible), or `== LOCAL FALLBACK (extractive, no LLM) ... ==`.
+
+### Claude CLI (no API key)
+
+Uses the [Claude Code](https://claude.com/claude-code) CLI you're already signed into (e.g. a Pro plan). Each
+model call is one non-interactive `claude -p --model <model> --output-format json --tools ""` run with
+Course Compass's own system prompt; your notes go in on stdin. No key is read, stored or sent by Course Compass.
+
+```bash
+claude                      # once, interactively: sign in with /login if you haven't
+export COURSE_COMPASS_PROVIDER=claude
+python3 -m course_compass ask "Why is supply more elastic in the long run?"
+python3 -m course_compass quiz --topic elasticity --n 4
+```
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `COURSE_COMPASS_CLAUDE_MODEL` | Model alias or full name passed to `--model` | `sonnet` |
+| `COURSE_COMPASS_CLAUDE_BIN` | Path to the `claude` binary, if it isn't on `PATH` | `claude` |
+| `COURSE_COMPASS_CLAUDE_TIMEOUT` | Seconds per call before it fails | `120` |
+
+**Why `sonnet` by default:** on the real eval Sonnet and Haiku were equally fast through the CLI (about 7 s per
+answer, because CLI start-up dominates), so Haiku's speed advantage disappears. Sonnet is the stronger model at
+the same latency, and you get more margin on refusals and grounding for notes harder than ours.
+`COURSE_COMPASS_CLAUDE_MODEL=haiku` is a fine choice if you want to use less of your plan's usage allowance
+(Haiku scored the same on our set); `opus` works too but is slower. Each `ask` is one model call (two if the
+reply needed a repair); each `quiz` is one or two.
+
+### OpenAI-compatible API (bring your own key)
 
 | Variable | Meaning | Default |
 |---|---|---|
@@ -184,7 +357,9 @@ what is sent.
 - Refuse questions whose best match is below the threshold.
 - Build template quizzes ("Which term matches this definition?") from `- **Term**: definition` lines, with
   distractors taken from your other defined terms.
-- Everything in review, plan and export (none of these need an LLM).
+- Everything in review, plan, export, due, progress and cram (local cram uses the template quiz).
+- `simplify` and `examples` as a labelled extract only: key sentences and "such as"/"use ... to" sentences
+  quoted from your notes. They don't simplify or invent examples.
 
 **Cannot:**
 - Summarise or rephrase. You get the raw chunks, not an answer sentence.
@@ -204,8 +379,13 @@ It is always labelled `LOCAL FALLBACK ... no LLM` and never presents its output 
   also refusing real ones (at 0.30, 8/8 unanswerable are refused but so are 5/18 answerable ones).
 - **The LLM can still be wrong.** Validation guarantees that citations *exist* and the JSON is well formed. It
   cannot prove that a cited chunk actually *supports* the sentence. **Citations are your check**: open the chunk.
-- **LLM quiz answers aren't verified against the chunk text.** The source chunk must exist and distractors must
-  come from your notes, but whether the "correct" answer is right is up to the model (and you).
+- **LLM quiz answers are only partly verified.** The key must be a term from your notes that appears in the
+  question's source chunk, and distractors must come from your notes. Whether the question really points to
+  that term is up to the model (and you). On the eval a blind second model call agreed with every key, but
+  that's a check by the same model family, not proof.
+- **The Claude CLI provider can't fix the temperature.** `claude -p` has no temperature flag, so repeated runs
+  vary slightly (see the run-to-run numbers in [docs/EVAL_LLM.md](docs/EVAL_LLM.md)). It also takes about 7 s
+  per call, and every call counts against your Claude plan's usage limits.
 - **The sample notes are generic** textbook-level summaries written for this project, not any real course.
   The benchmark is small (26 questions on 4 short notes), so treat its percentages as rough.
 - One local JSON file, one user. No sync, no accounts.
@@ -216,19 +396,35 @@ It is always labelled `LOCAL FALLBACK ... no LLM` and never presents its output 
 python3 -m unittest discover
 ```
 
-All tests use the standard library, mock every LLM HTTP call, and never touch the network. They cover
-chunking, retrieval ranking, answering and refusal, the HTTP client, quiz validation, SM-2 scheduling,
-storage, path guards, the demo page, and full CLI runs on the sample notes. The exact count is in
-[BUILD_REPORT.md](BUILD_REPORT.md).
+All tests use the standard library, fake every LLM call (an injected HTTP opener or CLI runner), and never
+touch the network or start a model. They cover chunking, retrieval ranking, answering and refusal, the HTTP
+client, the Claude CLI client, provider selection, quiz validation, the eval scorers, SM-2 scheduling,
+storage, path guards, the demo page, full CLI runs on the sample notes, and the school features: simplify
+layers, grounded-vs-illustrative example labels, `.ics` round trips, progress with and without history, and
+cram topic choice and SM-2 recording.
+
+The real-model evaluation is separate, because it needs a signed-in Claude Code CLI (or a key) and takes about
+3 minutes:
+
+```bash
+python3 scripts/eval_llm.py                     # Claude CLI, default model; see docs/EVAL_LLM.md
+```
 
 ## Project layout
 
 ```text
-course_compass/   cli, chunking, retrieval, answering, quiz, review, store, llm, prompts, ingest, evaluation
+course_compass/   cli, chunking, retrieval, answering, quiz, review, store, llm, prompts, ingest, evaluation,
+                  llm_eval (real-model eval scoring), explain (simplify + examples), reminders (due digest +
+                  .ics), progress (trends + cram topic choice)
 tests/            unittest suite + tests/examples/questions.json (retrieval benchmark)
 examples/notes/   4 original sample notes
+examples/eval-notes/  4 more notes for the LLM eval (operations, project management, decision analysis,
+                  supply and demand)
+examples/eval/    llm_eval.json: the real-model eval set (20 questions, 3 quizzes)
+scripts/          eval_llm.py: runs the real-model eval
 demo/index.html   static, offline demo
-docs/             LEARNING.md (concepts + measurements), ARCHITECTURE.md, PROMPTS.md (verbatim prompts)
+docs/             LEARNING.md (concepts + measurements), ARCHITECTURE.md, PROMPTS.md (verbatim prompts),
+                  EVAL_LLM.md (real-model eval: method, numbers, fixes)
 ```
 
 ## License

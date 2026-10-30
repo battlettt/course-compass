@@ -17,6 +17,15 @@ LOCAL_LABEL = "LOCAL FALLBACK (extractive, no LLM): quoted verbatim from your no
 LLM_LABEL = "LLM answer, grounded in your notes"
 
 _CITATION_RE = re.compile(r"\[([a-z0-9][a-z0-9\-]*#\d+)\]")
+# A sentence ends at . ! ? or a closing citation bracket, followed by a new capitalised sentence,
+# so "... the market. [elasticity#6]" keeps its trailing citation.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?\]])\s+(?=[A-Z0-9(\"'])")
+
+
+def provider_tag(client) -> str:
+    """'' for the generic OpenAI-compatible client, ' (Claude CLI: sonnet)' for others."""
+    label = getattr(client, "label", "LLM")
+    return f" ({label})" if isinstance(label, str) and label not in ("", "LLM") else ""
 
 
 class AnswerError(Exception):
@@ -50,17 +59,28 @@ def refusal(hits: list[Hit], reason: str) -> Answer:
     return Answer(text=text, mode="refusal", label="Refusal", hits=hits)
 
 
-def answer_question(question: str, index: TfidfIndex, client=None,
-                    threshold: float = DEFAULT_THRESHOLD, k: int = DEFAULT_TOP_K) -> Answer:
-    """Answer from notes. With `client` use the LLM, otherwise extractive fallback."""
-    question = check_question(question)
+def retrieve(question: str, index: TfidfIndex, threshold: float = DEFAULT_THRESHOLD,
+             k: int = DEFAULT_TOP_K) -> tuple[list[Hit], str | None]:
+    """Top-k hits for a question, plus a refusal reason if the best one is below threshold.
+
+    Hits under half the threshold are dropped so weak chunks never reach the LLM.
+    """
     if not index.chunks:
         raise AnswerError("No notes ingested yet. Run `ingest` first.")
     hits = index.search(question, k=k)
     if not hits or hits[0].score < threshold:
         best = f"{hits[0].score:.2f}" if hits else "0.00"
-        return refusal(hits, f"(best match score {best} is below the {threshold:.2f} threshold)")
-    hits = [hit for hit in hits if hit.score >= threshold / 2]
+        return hits, f"(best match score {best} is below the {threshold:.2f} threshold)"
+    return [hit for hit in hits if hit.score >= threshold / 2], None
+
+
+def answer_question(question: str, index: TfidfIndex, client=None,
+                    threshold: float = DEFAULT_THRESHOLD, k: int = DEFAULT_TOP_K) -> Answer:
+    """Answer from notes. With `client` use the LLM, otherwise extractive fallback."""
+    question = check_question(question)
+    hits, too_weak = retrieve(question, index, threshold, k)
+    if too_weak:
+        return refusal(hits, too_weak)
     if client is None:
         return extractive_answer(hits)
     return llm_answer(question, hits, client)
@@ -72,6 +92,15 @@ def extractive_answer(hits: list[Hit], max_chunks: int = 2) -> Answer:
              f"{hit.chunk.text}" for hit in used]
     return Answer(text="\n\n".join(parts), mode="local", label=LOCAL_LABEL,
                   citations=[hit.chunk.id for hit in used], hits=hits)
+
+
+def split_sentences(text: str) -> list[str]:
+    return [part.strip() for part in _SENTENCE_SPLIT_RE.split(text.strip()) if part.strip()]
+
+
+def uncited_sentences(answer: str) -> list[str]:
+    return [sentence for sentence in split_sentences(answer)
+            if not _CITATION_RE.search(sentence) and re.search(r"[A-Za-z]{3}", sentence)]
 
 
 def parse_json_object(text: str) -> dict:
@@ -111,6 +140,11 @@ def validate_answer_payload(text: str, allowed_ids: set[str]) -> tuple[dict, lis
             errors.append('"answer" is empty but "in_notes" is true')
         if not cited:
             errors.append("answer has no citations")
+        else:
+            uncited = uncited_sentences(answer)
+            if uncited:
+                quoted = "; ".join(f'"{sentence[:80]}"' for sentence in uncited[:3])
+                errors.append(f"every sentence needs its own [chunk-id] citation; uncited: {quoted}")
         unknown = sorted(cited - allowed_ids)
         if unknown:
             errors.append(f"cited ids not in the provided chunks: {', '.join(unknown)}")
@@ -139,5 +173,6 @@ def llm_answer(question: str, hits: list[Hit], client) -> Answer:
         raise AnswerError("LLM answer rejected after one repair attempt: " + "; ".join(errors))
     if not data["in_notes"]:
         return refusal(hits, "(the LLM found no supporting chunk)")
-    return Answer(text=data["answer"].strip(), mode="llm", label=LLM_LABEL,
+    label = LLM_LABEL.replace("LLM answer", "LLM answer" + provider_tag(client), 1)
+    return Answer(text=data["answer"].strip(), mode="llm", label=label,
                   citations=data["citations"], hits=hits)

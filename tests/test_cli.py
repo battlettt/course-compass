@@ -151,6 +151,116 @@ class CLITests(unittest.TestCase):
         self.assertIn("[hypothesis-testing#4] examples/notes/hypothesis-testing.md", out)
 
 
+class FakeClaude:
+    label = "Claude CLI: sonnet"
+
+    def __init__(self, *replies):
+        self.replies = list(replies)
+
+    def chat(self, messages, temperature=0.0):
+        return self.replies.pop(0)
+
+
+TYPE_I_REPLY = json.dumps({"in_notes": True, "answer": "Rejecting a true null [hypothesis-testing#4].",
+                           "citations": ["hypothesis-testing#4"]})
+
+
+@mock.patch.dict(os.environ, NO_KEY_ENV, clear=True)
+class ProviderSelectionTests(unittest.TestCase):
+    setUp = CLITests.setUp
+    tearDown = CLITests.tearDown
+    run_cli = CLITests.run_cli
+    ingest = CLITests.ingest
+
+    def args(self, *argv):
+        return cli.build_parser().parse_args(["ask", "q", *argv])
+
+    def test_requested_provider_precedence(self):
+        pick = cli.requested_provider
+        self.assertIsNone(pick(self.args(), {}))
+        self.assertEqual(pick(self.args("--llm"), {}), "openai")
+        self.assertEqual(pick(self.args("--local"), {"COURSE_COMPASS_PROVIDER": "claude"}), "local")
+        self.assertEqual(pick(self.args(), {"COURSE_COMPASS_PROVIDER": "Claude"}), "claude")
+        self.assertEqual(pick(self.args("--llm"), {"COURSE_COMPASS_PROVIDER": "claude"}), "claude")
+        self.assertEqual(pick(self.args("--provider", "openai"), {"COURSE_COMPASS_PROVIDER": "claude"}), "openai")
+        self.assertEqual(pick(self.args("--provider", "local", "--local"), {}), "local")
+
+    def test_conflicting_or_bad_choices_are_errors(self):
+        for argv, env in [(("--local", "--provider", "claude"), {}),
+                          (("--llm", "--provider", "local"), {}),
+                          (("--llm",), {"COURSE_COMPASS_PROVIDER": "local"}),
+                          ((), {"COURSE_COMPASS_PROVIDER": "gpt"})]:
+            with self.assertRaises(cli.CLIError, msg=str((argv, env))):
+                cli.requested_provider(self.args(*argv), env)
+
+    def test_claude_provider_answer_is_labelled_as_claude(self):
+        self.ingest()
+        with mock.patch.object(cli, "ClaudeCLIClient", return_value=FakeClaude(TYPE_I_REPLY)), \
+                mock.patch.object(cli.ClaudeCLIConfig, "from_env", return_value=None):
+            code, out, _ = self.run_cli("ask", "What is a Type I error?", "--provider", "claude")
+        self.assertEqual(code, 0)
+        self.assertIn("== LLM answer (Claude CLI: sonnet), grounded in your notes ==", out)
+        self.assertNotIn("LOCAL", out)
+
+    def test_claude_provider_via_env_var_for_quiz(self):
+        self.ingest()
+        item = {"question": "Which term is the share of income response?", "correct": "Income elasticity",
+                "distractors": ["Cross-price elasticity", "Unit elastic", "Elastic demand"],
+                "source_chunk_id": "elasticity#3"}
+        fake = FakeClaude(json.dumps({"items": [item]}))
+        with mock.patch.dict(os.environ, {"COURSE_COMPASS_PROVIDER": "claude"}), \
+                mock.patch.object(cli, "ClaudeCLIClient", return_value=fake), \
+                mock.patch.object(cli.ClaudeCLIConfig, "from_env", return_value=None):
+            code, out, _ = self.run_cli("quiz", "--topic", "elasticity", "--n", "1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("== LLM quiz (Claude CLI: sonnet) (validated", out)
+
+    def test_unavailable_claude_fails_instead_of_falling_back(self):
+        self.ingest()
+        env = {"COURSE_COMPASS_CLAUDE_BIN": str(Path(self.tmp.name) / "no-such-claude")}
+        for argv, extra_env in [(("--provider", "claude"), env),
+                                ((), {**env, "COURSE_COMPASS_PROVIDER": "claude"}),
+                                (("--llm",), {**env, "COURSE_COMPASS_PROVIDER": "claude"})]:
+            with mock.patch.dict(os.environ, extra_env):
+                code, out, err = self.run_cli("ask", "What is a p-value?", *argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn("Claude CLI provider unavailable", err)
+            self.assertNotIn("LOCAL", out)
+            self.assertNotIn("Sources:", out)
+
+    def test_openai_provider_without_key_fails(self):
+        self.ingest()
+        for argv, env in [(("--provider", "openai"), {}), ((), {"COURSE_COMPASS_PROVIDER": "openai"})]:
+            with mock.patch.dict(os.environ, env):
+                code, out, err = self.run_cli("ask", "What is a p-value?", *argv)
+            self.assertEqual(code, 2)
+            self.assertIn("COURSE_COMPASS_API_KEY", err)
+            self.assertEqual(out, "")
+
+    def test_local_provider_is_labelled_local(self):
+        self.ingest()
+        code, out, _ = self.run_cli("ask", "What is a p-value?", "--provider", "local")
+        self.assertEqual(code, 0)
+        self.assertIn("LOCAL FALLBACK", out)
+        with mock.patch.dict(os.environ, {"COURSE_COMPASS_PROVIDER": "local", "COURSE_COMPASS_API_KEY": "k"}):
+            code, out, _ = self.run_cli("ask", "What is a p-value?")
+        self.assertIn("COURSE_COMPASS_PROVIDER=local: using the LOCAL fallback (no LLM).", out)
+        self.assertIn("LOCAL FALLBACK", out)
+
+    def test_key_set_without_provider_still_uses_openai_client(self):
+        self.ingest()
+        fake = mock.Mock()
+        fake.chat.return_value = TYPE_I_REPLY
+        with mock.patch.dict(os.environ, {"COURSE_COMPASS_API_KEY": "k"}), \
+                mock.patch.object(cli, "LLMClient", return_value=fake) as made, \
+                mock.patch.object(cli, "ClaudeCLIClient") as claude:
+            code, out, _ = self.run_cli("ask", "What is a Type I error?")
+        self.assertEqual(code, 0)
+        made.assert_called_once()
+        claude.assert_not_called()
+        self.assertIn("== LLM answer, grounded in your notes ==", out)
+
+
 class ModuleEntryPointTests(unittest.TestCase):
     def test_python_dash_m_runs(self):
         result = subprocess.run([sys.executable, "-m", "course_compass", "--version"],

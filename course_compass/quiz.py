@@ -3,7 +3,8 @@
 Every item has one correct answer and exactly three distinct distractors.
 Distractors are always terms that already exist in the student's notes:
 the local generator picks them directly, and LLM output is rejected if a
-distractor is not in the pool of note terms we supplied.
+distractor is not in the pool of note terms we supplied. LLM answer keys
+must also be pool terms that appear in the item's source chunk.
 """
 
 from __future__ import annotations
@@ -94,8 +95,13 @@ def extract_facts(chunks: list[Chunk]) -> list[Fact]:
     return facts
 
 
-def validate_item(raw: dict, chunk_ids: set[str], pool: set[str] | None = None) -> list[str]:
-    """Return a list of problems with one raw quiz item (empty list = valid)."""
+def validate_item(raw: dict, chunk_ids: set[str], pool: set[str] | None = None,
+                  chunk_text: dict[str, str] | None = None) -> list[str]:
+    """Return a list of problems with one raw quiz item (empty list = valid).
+
+    With `pool`, distractors and the correct answer must be note terms (so all four options are the
+    same kind of thing). With `chunk_text`, the correct term must appear in its source chunk.
+    """
     if not isinstance(raw, dict):
         return ["item is not a JSON object"]
     errors = []
@@ -119,8 +125,13 @@ def validate_item(raw: dict, chunk_ids: set[str], pool: set[str] | None = None) 
             outside = [d for d in distractors if normalize(d) not in pool]
             if outside:
                 errors.append(f"distractors not taken from the notes' term pool: {outside}")
-    if raw.get("source_chunk_id") not in chunk_ids:
-        errors.append(f"source_chunk_id {raw.get('source_chunk_id')!r} is not a known chunk")
+    if pool is not None and correct and normalize(correct) not in pool:
+        errors.append(f"correct answer {correct!r} is not a term from the DISTRACTOR POOL")
+    source = raw.get("source_chunk_id")
+    if source not in chunk_ids:
+        errors.append(f"source_chunk_id {source!r} is not a known chunk")
+    elif chunk_text is not None and correct and normalize(correct) not in normalize(chunk_text.get(source, "")):
+        errors.append(f"correct answer {correct!r} does not appear in source chunk {source}")
     return errors
 
 
@@ -207,7 +218,8 @@ def check_n(n: int) -> int:
     return n
 
 
-def _validate_llm_reply(reply: str, n: int, chunk_ids: set[str], pool: set[str]) -> tuple[list, list[str]]:
+def _validate_llm_reply(reply: str, n: int, chunk_ids: set[str], pool: set[str],
+                        chunk_text: dict[str, str] | None = None) -> tuple[list, list[str]]:
     try:
         data = parse_json_object(reply)
     except ValueError as exc:
@@ -219,7 +231,7 @@ def _validate_llm_reply(reply: str, n: int, chunk_ids: set[str], pool: set[str])
     if len(items) > n:
         errors.append(f"expected at most {n} items, got {len(items)}")
     for number, raw in enumerate(items, start=1):
-        errors += [f"item {number}: {problem}" for problem in validate_item(raw, chunk_ids, pool)]
+        errors += [f"item {number}: {problem}" for problem in validate_item(raw, chunk_ids, pool, chunk_text)]
     return items, errors
 
 
@@ -229,24 +241,28 @@ def llm_quiz(chunks: list[Chunk], topic: str | None, n: int, client) -> list[Qui
     sources = [chunk for chunk in chunks if topic is None or chunk.topic == topic][:MAX_SOURCE_CHUNKS]
     if not sources:
         raise QuizError("No notes to quiz on.")
-    pool_terms = [fact.term for fact in extract_facts(chunks)]
-    if len(pool_terms) < 4:
+    facts = extract_facts(chunks)
+    if len(facts) < 4:
         raise QuizError("Notes contain fewer than 4 defined terms, so distractors cannot be grounded.")
-    pool = {normalize(term) for term in pool_terms}
+    pool = {normalize(fact.term) for fact in facts}
+    same_topic = [fact.term for fact in facts if topic is None or fact.topic == topic]
+    other_topics = [fact.term for fact in facts if topic is not None and fact.topic != topic]
     chunk_ids = {chunk.id for chunk in sources}
+    chunk_text = {chunk.id: chunk.text for chunk in sources}
     messages = [
         {"role": "system", "content": prompts.QUIZ_SYSTEM},
         {"role": "user", "content": prompts.QUIZ_USER.format(
-            chunks=prompts.format_chunks(sources), pool=prompts.format_pool(pool_terms), n=n)},
+            chunks=prompts.format_chunks(sources), same_topic=prompts.format_pool(same_topic),
+            other_topics=prompts.format_pool(other_topics), n=n)},
     ]
     try:
         reply = client.chat(messages, temperature=0.3)
-        items, errors = _validate_llm_reply(reply, n, chunk_ids, pool)
+        items, errors = _validate_llm_reply(reply, n, chunk_ids, pool, chunk_text)
         if errors:
             messages += [{"role": "assistant", "content": reply},
                          {"role": "user", "content": prompts.REPAIR_USER.format(errors="\n".join(errors))}]
             reply = client.chat(messages, temperature=0.0)
-            items, errors = _validate_llm_reply(reply, n, chunk_ids, pool)
+            items, errors = _validate_llm_reply(reply, n, chunk_ids, pool, chunk_text)
     except LLMError as exc:
         raise QuizError(str(exc)) from None
     if errors:

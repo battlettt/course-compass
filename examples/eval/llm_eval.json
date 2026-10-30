@@ -1,0 +1,51 @@
+{
+  "notes": ["examples/notes", "examples/eval-notes"],
+  "subjects": {
+    "economics": ["elasticity", "supply-and-demand"],
+    "management-engineering": ["operations-management", "project-management", "decision-analysis"],
+    "statistics": ["hypothesis-testing"],
+    "natural-science": ["water-cycle", "cell-respiration"]
+  },
+  "questions": [
+    {"id": "ops-bottleneck", "question": "What limits the output rate of a whole process?",
+     "topic": "operations-management", "phrase": "lowest capacity", "key_facts": [["bottleneck", "slowest step"]]},
+    {"id": "ops-little", "question": "A clinic sees 12 patients per hour and each patient spends half an hour inside. How many patients are inside on average?",
+     "topic": "operations-management", "phrase": "about 6 patients", "key_facts": [["6", "six"]]},
+    {"id": "ops-reorder", "question": "How is the reorder point calculated?",
+     "topic": "operations-management", "phrase": "expected demand during the lead time", "key_facts": [["lead time"], ["safety stock"]]},
+    {"id": "ops-utilization", "question": "How do you calculate the utilization of a resource?",
+     "topic": "operations-management", "phrase": "divided by capacity", "key_facts": [["capacity"], ["output"]]},
+    {"id": "pm-critical-path", "question": "What is the critical path of a project?",
+     "topic": "project-management", "phrase": "longest path", "key_facts": [["longest"]]},
+    {"id": "pm-crash-first", "question": "Which activity should be crashed first to shorten a project?",
+     "topic": "project-management", "phrase": "lowest crash cost", "key_facts": [["critical"], ["lowest", "cheapest", "least"]]},
+    {"id": "pm-pert", "question": "How is the PERT expected duration of an activity computed?",
+     "topic": "project-management", "phrase": "four times the most likely", "key_facts": [["four", "4"], ["six", "6"]]},
+    {"id": "pm-cost-variance", "question": "What does a negative cost variance tell you?",
+     "topic": "project-management", "phrase": "over budget", "key_facts": [["over budget"]]},
+    {"id": "da-evpi", "question": "What is the expected value of perfect information?",
+     "topic": "decision-analysis", "phrase": "perfect information minus", "key_facts": [["perfect information"], ["minus", "difference", "subtract", "less"]]},
+    {"id": "da-pessimistic", "question": "Which decision criterion is the pessimistic one?",
+     "topic": "decision-analysis", "phrase": "pessimistic rule", "key_facts": [["maximin"]]},
+    {"id": "da-tree", "question": "How do you solve a decision tree?",
+     "topic": "decision-analysis", "phrase": "working backwards", "key_facts": [["backward"]]},
+    {"id": "sd-ceiling", "question": "What happens when a price ceiling is set below the equilibrium price?",
+     "topic": "supply-and-demand", "phrase": "causes a shortage", "key_facts": [["shortage"]]},
+    {"id": "sd-demand-up", "question": "If demand increases and supply stays the same, what happens to the equilibrium price and quantity?",
+     "topic": "supply-and-demand", "phrase": "raises both the equilibrium price", "key_facts": [["price"], ["quantity"], ["rise", "raise", "increase", "higher", "up"]]},
+    {"id": "el-inelastic-revenue", "question": "If demand is inelastic, what happens to total revenue when the price goes up?",
+     "topic": "elasticity", "phrase": "raising the price raises total revenue", "key_facts": [["rise", "raise", "increase", "higher", "up"]]},
+    {"id": "off-worldcup", "question": "Who won the 1998 football world cup?", "answerable": false, "kind": "far"},
+    {"id": "off-oil", "question": "What was the price of oil in 2008?", "answerable": false, "kind": "near"},
+    {"id": "off-cpm-inventor", "question": "Who invented the critical path method and in what year?", "answerable": false, "kind": "near"},
+    {"id": "off-pert-sd", "question": "What is the formula for the standard deviation of a PERT activity duration?", "answerable": false, "kind": "near"},
+    {"id": "off-milk", "question": "How many days of safety stock should a supermarket hold for milk?", "answerable": false, "kind": "near"},
+    {"id": "off-kanban", "question": "How does a kanban system limit work in process?", "answerable": false, "kind": "near"}
+  ],
+  "quizzes": [
+    {"id": "quiz-pm", "topic": "project-management", "n": 4},
+    {"id": "quiz-sd", "topic": "supply-and-demand", "n": 4},
+    {"id": "quiz-da", "topic": "decision-analysis", "n": 4}
+  ],
+  "repair_probes": ["ops-reorder", "pm-pert", "sd-ceiling", "quiz-sd"]
+}

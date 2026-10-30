@@ -1,8 +1,9 @@
 import json
 import unittest
 
-from course_compass.answering import (LOCAL_LABEL, MAX_QUESTION_CHARS, AnswerError, answer_question,
-                                      parse_json_object, validate_answer_payload)
+from course_compass.answering import (LLM_LABEL, LOCAL_LABEL, MAX_QUESTION_CHARS, AnswerError, answer_question,
+                                      parse_json_object, provider_tag, retrieve, split_sentences,
+                                      uncited_sentences, validate_answer_payload)
 from course_compass.llm import LLMTimeoutError
 from course_compass.retrieval import TfidfIndex
 from tests.helpers import FakeClient, sample_chunks
@@ -112,6 +113,51 @@ class PayloadTests(unittest.TestCase):
     def test_in_notes_must_be_bool(self):
         _, errors = validate_answer_payload('{"in_notes": "yes", "answer": "", "citations": []}', set())
         self.assertTrue(errors)
+
+
+class SentenceCitationTests(unittest.TestCase):
+    def test_split_keeps_trailing_citation_with_its_sentence(self):
+        text = "Supply is elastic in the long run. [elasticity#6] Firms can enter [elasticity#6]. Done."
+        self.assertEqual(split_sentences(text), ["Supply is elastic in the long run. [elasticity#6]",
+                                                 "Firms can enter [elasticity#6].", "Done."])
+
+    def test_uncited_sentence_is_reported_and_repaired(self):
+        bad = json.dumps({"in_notes": True, "citations": ["hypothesis-testing#4"],
+                          "answer": "A Type I error is a false alarm. It rejects a true null [hypothesis-testing#4]."})
+        _, errors = validate_answer_payload(bad, {"hypothesis-testing#4"})
+        self.assertTrue(any("uncited" in e and "false alarm" in e for e in errors))
+        good = json.dumps({"in_notes": True, "citations": ["hypothesis-testing#4"],
+                           "answer": "It rejects a true null [hypothesis-testing#4]."})
+        client = FakeClient(bad, good)
+        index = TfidfIndex(sample_chunks())
+        answer = answer_question("What is a Type I error?", index, client=client)
+        self.assertEqual(answer.mode, "llm")
+        self.assertIn("uncited", client.calls[1][-1]["content"])
+
+    def test_every_cited_sentence_passes(self):
+        self.assertEqual(uncited_sentences("One [a#1]. Two [a#1]."), [])
+
+    def test_retrieve_reports_weak_match(self):
+        index = TfidfIndex(sample_chunks())
+        hits, reason = retrieve("Who won the 1998 football world cup?", index)
+        self.assertIn("below", reason)
+        hits, reason = retrieve("What is a p-value?", index)
+        self.assertIsNone(reason)
+        self.assertTrue(all(hit.score >= 0.075 for hit in hits))
+
+
+class ProviderLabelTests(unittest.TestCase):
+    def test_generic_client_keeps_original_label(self):
+        self.assertEqual(provider_tag(FakeClient()), "")
+
+    def test_named_provider_is_shown_in_label(self):
+        client = FakeClient(json.dumps({"in_notes": True, "answer": "Rejects a true null [hypothesis-testing#4].",
+                                        "citations": ["hypothesis-testing#4"]}))
+        client.label = "Claude CLI: sonnet"
+        answer = answer_question("What is a Type I error?", TfidfIndex(sample_chunks()), client=client)
+        self.assertEqual(answer.label, "LLM answer (Claude CLI: sonnet), grounded in your notes")
+        self.assertNotEqual(answer.label, LLM_LABEL)
+        self.assertNotIn("LOCAL", answer.label)
 
 
 if __name__ == "__main__":

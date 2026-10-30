@@ -16,11 +16,12 @@ server: every command reads a local JSON file, does its work, and writes the fil
                                    score < threshold? ──yes──► refusal "Not in your notes."
                                                  │ no
                          ┌───────────────────────┴───────────────────────┐
-                    no key / --local                                key set / --llm
+                 provider local                        provider claude / openai
                          ▼                                               ▼
               answering.extractive_answer                   answering.llm_answer
-              (quote chunks verbatim,                       prompts.py ─► llm.py (HTTP, timeout)
-               labelled LOCAL FALLBACK)                     ─► validate ─► repair once ─► accept / reject
+              (quote chunks verbatim,                       prompts.py ─► llm.py: ClaudeCLIClient (`claude -p`)
+               labelled LOCAL FALLBACK)                        or LLMClient (HTTP); typed LLMError on failure
+                                                            ─► validate ─► repair once ─► accept / reject
 
  quiz:   chunks ─► quiz.extract_facts ─► local_quiz (template)   or   llm_quiz (prompt + validate + repair)
                                      ─► QuizItem + new review Card saved to db.json
@@ -33,7 +34,7 @@ server: every command reads a local JSON file, does its work, and writes the fil
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `cli.py` | argparse commands, human-readable output, exit codes (0 ok / 2 error), choosing LLM vs local | everything below |
+| `cli.py` | argparse commands, human-readable output, exit codes (0 ok / 2 error), choosing the provider (`requested_provider`, `pick_client`) | everything below |
 | `__main__.py` | `python3 -m course_compass` → `cli.main()` | `cli` |
 | `ingest.py` | Path guard (`..` refused, resolved path and symlink targets must be inside an allowed root), file discovery, size caps, duplicate-topic renaming | `chunking` |
 | `chunking.py` | Markdown → sections at headings → chunks of ≤ `max_words` with `overlap`; stable ids `topic#n` | – |
@@ -42,9 +43,10 @@ server: every command reads a local JSON file, does its work, and writes the fil
 | `quiz.py` | Definition extraction, local template quiz, distractor ranking, item validation, LLM quiz + one repair | `prompts`, `llm`, `answering.parse_json_object` |
 | `review.py` | SM-2 scheduling, due queue, weak-topic stats, study-plan allocation. Pure functions, no I/O | – |
 | `store.py` | Load/validate/atomically save the JSON database | – |
-| `llm.py` | Env-var config (BYOK), base-URL check, chat-completions HTTP with timeout and typed errors | stdlib `urllib` |
+| `llm.py` | Two providers with one `chat(messages, temperature)` interface and one `LLMError` family: `LLMClient` (env-var BYOK config, base-URL check, chat-completions HTTP with timeout) and `ClaudeCLIClient` (runs `claude -p` in a throwaway directory, system prompt via `--system-prompt`, transcript on stdin, JSON result parsed, errors redacted) | stdlib `urllib`, `subprocess` |
 | `prompts.py` | All prompt templates and chunk formatting | – |
 | `evaluation.py` | Retrieval benchmark over a question set (used by `eval` and `tests/test_evaluation.py`) | `retrieval` |
+| `llm_eval.py` | Real-model eval: recording/corrupting client wrappers, grounding/citation/refusal/quiz scorers, optional LLM judge, runner and summary (driven by `scripts/eval_llm.py`) | `answering`, `quiz`, `retrieval` |
 
 `review.py`, `chunking.py`, `retrieval.py` and `prompts.py` do no I/O at all, which keeps them trivially testable.
 
@@ -70,9 +72,22 @@ quiz code depend only on an object with `chat(messages, temperature)`, so tests 
 error strings* rather than raising. The same list becomes (a) the repair prompt sent back to the model and
 (b) the final error shown to the user. Hard rules are code, never just prompt text.
 
-**LLM selection.** `--local` forces the fallback. `--llm` requires a key (exit 2 if missing). Otherwise the
-LLM is used if `COURSE_COMPASS_API_KEY` is set, and the fallback runs with a one-line notice if not. The output
-header always says which ran.
+**Provider selection.** `--provider claude|openai|local` (or `COURSE_COMPASS_PROVIDER`; the flag wins) picks
+explicitly, and an explicitly requested LLM that can't run (no `claude` binary, not signed in, no key) is an
+error (exit 2), never a quiet fallback. `--local` forces the fallback. `--llm` means the env-var provider if
+set, else the OpenAI-compatible one, which requires a key (exit 2 if missing), exactly as before. With nothing
+requested, the OpenAI-compatible LLM is used if `COURSE_COMPASS_API_KEY` is set, and the fallback runs with a
+one-line notice if not. The output header always says which ran, including the provider and model for Claude
+(`LLM answer (Claude CLI: sonnet)`).
+
+**Claude CLI as a provider.** `ClaudeCLIClient` makes one `claude -p` run per chat turn, with `--tools ""` (no
+agent tools), `--no-session-persistence`, `--strict-mcp-config`, and Course Compass's system prompt replacing
+Claude Code's own. Notes travel on stdin, not argv, so they don't show up in process listings. The run happens in
+a fresh temporary directory so no project `CLAUDE.md` is picked up, and `COURSE_COMPASS_API_KEY` is removed from
+the child's environment. The subprocess runner is injectable, so tests fake it the same way they fake the HTTP
+opener. Timeouts map to `LLMTimeoutError`, "not logged in" style failures to `ProviderUnavailableError` (with a
+`/login` hint), other failures to `LLMProviderError`, and unparseable output to `LLMResponseError`. Error text
+from the CLI is trimmed to 300 characters and anything key-shaped is masked.
 
 **Deterministic local quizzes.** `local_quiz(..., seed)` and `QuizItem.options()` (shuffled with the item id as
 seed) are deterministic. You can print a quiz, think, and grade it with `--answers` in a second command, and

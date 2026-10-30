@@ -106,6 +106,19 @@ class ValidateItemTests(unittest.TestCase):
         errors = validate_item({"distractors": "x", "source_chunk_id": "nope#1"}, self.IDS)
         self.assertEqual(len(errors), 4)
 
+    def test_correct_answer_must_be_pool_term(self):
+        pool = {normalize(t) for t in ["Cross-price elasticity", "Unit elastic", "Elastic demand"]}
+        errors = validate_item(GOOD_ITEM, self.IDS, pool)
+        self.assertTrue(any("is not a term from the DISTRACTOR POOL" in e for e in errors))
+        pool.add(normalize("Income elasticity"))
+        self.assertEqual(validate_item(GOOD_ITEM, self.IDS, pool), [])
+
+    def test_correct_answer_must_appear_in_source_chunk(self):
+        text = {"elasticity#3": "- **Income elasticity**: the percentage change in quantity demanded ..."}
+        self.assertEqual(validate_item(GOOD_ITEM, self.IDS, chunk_text=text), [])
+        errors = validate_item(GOOD_ITEM, self.IDS, chunk_text={"elasticity#3": "Unrelated text."})
+        self.assertTrue(any("does not appear in source chunk" in e for e in errors))
+
     def test_invented_distractor_rejected_with_pool(self):
         pool = {normalize(t) for t in ["Cross-price elasticity", "Unit elastic"]}
         errors = validate_item(GOOD_ITEM, self.IDS, pool)
@@ -123,8 +136,19 @@ class LLMQuizTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].origin, "llm")
         self.assertEqual(items[0].topic, "elasticity")
-        self.assertIn("DISTRACTOR POOL", client.calls[0][1]["content"])
-        self.assertIn("- Catchment", client.calls[0][1]["content"])
+        prompt = client.calls[0][1]["content"]
+        self.assertIn("DISTRACTOR POOL", prompt)
+        same, other = prompt.split("SAME TOPIC")[1].split("OTHER TOPICS")
+        self.assertIn("- Income elasticity", same)
+        self.assertNotIn("- Catchment", same)
+        self.assertIn("- Catchment", other)
+
+    def test_answer_key_not_in_pool_is_repaired(self):
+        bad = dict(GOOD_ITEM, correct="the change in demand when income changes")
+        client = FakeClient(reply(bad), reply(GOOD_ITEM))
+        items = llm_quiz(self.chunks, "elasticity", 1, client)
+        self.assertEqual(items[0].correct, "Income elasticity")
+        self.assertIn("not a term from the DISTRACTOR POOL", client.calls[1][-1]["content"])
 
     def test_invented_distractor_is_repaired_once(self):
         bad = dict(GOOD_ITEM, distractors=["Banana", "Unit elastic", "Elastic demand"])
