@@ -1,0 +1,22 @@
+# Local study data (chunks, quiz results): never commit
+.course-compass/
+*.db.json
+study-sheet.md
+
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

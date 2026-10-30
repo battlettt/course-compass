@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Course Compass demo: ask and quiz from your own notes</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #5b6475; --line: #d9dde5;
+    --accent: #2457c5; --accent-ink: #ffffff; --good: #1d7a46; --good-bg: #e7f5ec;
+    --bad: #b3261e; --bad-bg: #fbeceb; --warn-bg: #fff6df; --warn-ink: #6b4e00; --mark: #fff1a8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b2029; --ink: #e8ebf1; --muted: #a3abba; --line: #333b49;
+      --accent: #7aa2ff; --accent-ink: #0d1220; --good: #6fd39a; --good-bg: #173325;
+      --bad: #ff9b93; --bad-bg: #3a1d1b; --warn-bg: #3a3018; --warn-ink: #f3d68a; --mark: #5a4d12;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--ink); }
+  header, main, footer { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+  header { padding-top: 28px; }
+  h1 { margin: 0 0 4px; font-size: 1.7rem; }
+  h2 { margin: 0 0 12px; font-size: 1.2rem; }
+  .lede { margin: 0 0 16px; color: var(--muted); }
+  .banner { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 10px 14px;
+            margin-bottom: 20px; font-size: .95rem; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+            padding: 18px 20px; margin-bottom: 20px; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  textarea, input[type=text] { width: 100%; font: inherit; color: inherit; background: var(--bg);
+            border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+  textarea { min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+             font-size: .88rem; }
+  textarea:focus, input:focus, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .row input[type=text] { flex: 1 1 320px; }
+  button { font: inherit; font-weight: 600; border: 1px solid var(--accent); border-radius: 6px;
+           padding: 9px 16px; min-height: 44px; cursor: pointer; background: var(--accent); color: var(--accent-ink); }
+  button.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .status { color: var(--muted); font-size: .92rem; }
+  .label { display: inline-block; font-size: .78rem; font-weight: 700; letter-spacing: .03em;
+           text-transform: uppercase; padding: 2px 8px; border-radius: 4px; background: var(--warn-bg);
+           color: var(--warn-ink); margin-bottom: 8px; }
+  .refusal { background: var(--bad-bg); color: var(--bad); padding: 10px 14px; border-radius: 6px; }
+  .chunk { border-left: 4px solid var(--accent); padding: 8px 12px; margin: 10px 0; background: var(--bg);
+           border-radius: 0 6px 6px 0; }
+  .chunk .meta { font-size: .85rem; color: var(--muted); }
+  .chunk .text { white-space: pre-wrap; }
+  .chunk code { font-weight: 700; }
+  mark { background: var(--mark); color: inherit; padding: 0 1px; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 14px; padding: 12px 14px; }
+  legend { font-weight: 600; padding: 0 6px; }
+  .opt { display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px; border-radius: 4px; }
+  .opt input { margin-top: 5px; width: 18px; height: 18px; }
+  .opt.correct { background: var(--good-bg); color: var(--good); font-weight: 600; }
+  .opt.wrong { background: var(--bad-bg); color: var(--bad); }
+  .feedback { font-size: .9rem; margin-top: 6px; }
+  .score { font-size: 1.1rem; font-weight: 700; }
+  footer { color: var(--muted); font-size: .88rem; padding-bottom: 32px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Course Compass</h1>
+  <p class="lede">Ask questions and take a quiz grounded only in your own notes, with citations to the exact chunk.</p>
+  <div class="banner" role="note">
+    <strong>Local demo, no AI model.</strong> Everything runs in this page: keyword (TF-IDF) retrieval,
+    verbatim quotes, and template quiz questions. Nothing is uploaded and no API key is used.
+    The full Python tool can optionally call an LLM with your own key.
+  </div>
+</header>
+
+<main>
+  <section aria-labelledby="notes-h">
+    <h2 id="notes-h">1. Your notes</h2>
+    <label for="notes">Paste markdown notes (use <code># headings</code> and <code>- **Term**: definition</code> lines)</label>
+    <textarea id="notes" spellcheck="false"></textarea>
+    <div class="row">
+      <button id="index-btn" type="button">Index notes</button>
+      <button id="sample-btn" type="button" class="secondary">Load sample notes</button>
+      <span id="index-status" class="status" role="status" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <section aria-labelledby="ask-h">
+    <h2 id="ask-h">2. Ask a question</h2>
+    <form id="ask-form" class="row">
+      <label for="question" class="sr-only">Question</label>
+      <input id="question" type="text" maxlength="500" placeholder="e.g. What is a p-value?" autocomplete="off">
+      <button type="submit">Ask</button>
+    </form>
+    <div class="row" aria-label="Example questions">
+      <button type="button" class="secondary example">What is a p-value?</button>
+      <button type="button" class="secondary example">Why do urban areas flood more?</button>
+      <button type="button" class="secondary example">Who won the 1998 world cup?</button>
+    </div>
+    <div id="answer" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="quiz-h">
+    <h2 id="quiz-h">3. Five-question sample quiz</h2>
+    <p class="status">Each question is built from one definition in your notes. The three wrong options are
+      real terms from your other definitions, never invented.</p>
+    <div class="row">
+      <button id="quiz-btn" type="button">New quiz</button>
+    </div>
+    <form id="quiz-form"></form>
+    <div id="quiz-result" aria-live="polite"></div>
+  </section>
+</main>
+
+<footer>
+  <p>Course Compass demo. Retrieval misses paraphrases (it matches words, not meaning), so check the cited chunk.
+    The sample notes are generic textbook-level material, not any real course.</p>
+</footer>
+
+<script>
+"use strict";
+
+const SAMPLE_NOTES = `# Hypothesis Testing Basics
+
+## Key terms
+
+- **Null hypothesis**: the default claim of no effect or no difference, written H0, which the test tries to find evidence against.
+- **Alternative hypothesis**: the competing claim, written H1, that there is an effect or a difference.
+- **P-value**: the probability of observing data at least as extreme as the sample, assuming the null hypothesis is true.
+- **Significance level**: the threshold alpha, often 0.05, chosen before the test, below which a p-value leads us to reject the null hypothesis.
+
+## Errors in testing
+
+- **Type I error**: rejecting a null hypothesis that is actually true; its probability equals the significance level.
+- **Type II error**: failing to reject a null hypothesis that is actually false.
+- **Statistical power**: the probability that a test correctly rejects a false null hypothesis.
+
+# Supply and Demand Elasticity
+
+## Key terms
+
+- **Price elasticity of demand**: the percentage change in quantity demanded divided by the percentage change in price.
+- **Elastic demand**: demand whose elasticity has an absolute value greater than one.
+- **Inelastic demand**: demand whose elasticity has an absolute value less than one.
+
+## Elasticity and total revenue
+
+When demand is elastic, cutting the price raises total revenue because quantity rises by a larger percentage. When demand is inelastic, raising the price raises total revenue.
+
+# Water Cycle and Runoff Basics
+
+## Key terms
+
+- **Infiltration**: the movement of water from the ground surface down into the soil.
+- **Surface runoff**: water that flows over the land surface toward streams because it cannot infiltrate fast enough.
+- **Catchment**: the area of land that drains all its runoff to a common outlet such as a river mouth.
+
+## Why it matters
+
+Urban areas with many impervious surfaces produce faster and higher flood peaks. Engineers use retention ponds and permeable paving to slow runoff and reduce flooding downstream.
+`;
+
+// Same rules as the Python package: heading-aware chunks, TF-IDF cosine, refusal threshold.
+const MAX_WORDS = 80, OVERLAP = 20, THRESHOLD = 0.15, MAX_NOTE_CHARS = 200000;
+const STOPWORDS = new Set(("a about above after again against all also am an and any are as at be because " +
+  "been before being below between both but by can could did do does doing down during each few for from " +
+  "further had has have having he her here hers him his how i if in into is it its itself just me more most " +
+  "my no nor not now of off on once only or other our out over own same she should so some such than that " +
+  "the their them then there these they this those through to too under until up very was we were what when " +
+  "where which while who whom why will with would you your explain describe define definition tell give show").split(" "));
+
+let chunks = [], index = null, quizItems = [];
+
+function stem(w) {
+  if (w.length > 4 && w.endsWith("ies")) return w.slice(0, -3) + "y";
+  if (w.length > 3 && w.endsWith("s") && !/(ss|us|is)$/.test(w)) return w.slice(0, -1);
+  return w;
+}
+function tokenize(text) {
+  return (text.toLowerCase().match(/[a-z0-9]+/g) || []).filter(t => !STOPWORDS.has(t)).map(stem);
+}
+function slugify(t) { return t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "note"; }
+
+function chunkNotes(markdown) {
+  // Each level-1 heading starts a new topic so pasted multi-note text gets distinct ids.
+  const out = [];
+  let topic = "notes", title = "Notes", heading = "", blocks = [], para = [], counter = {};
+  const flushPara = () => { if (para.length) { blocks.push(para.join(" ")); para = []; } };
+  const flushSection = () => {
+    flushPara();
+    if (!blocks.length) return;
+    for (const text of packBlocks(blocks)) {
+      counter[topic] = (counter[topic] || 0) + 1;
+      out.push({ id: `${topic}#${counter[topic]}`, topic, title, heading, text });
+    }
+    blocks = [];
+  };
+  for (const raw of markdown.split(/\r?\n/)) {
+    const line = raw.trim();
+    const h = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (h) {
+      flushSection();
+      heading = h[2].trim();
+      if (h[1].length === 1) { title = heading; topic = slugify(heading); }
+    } else if (!line) flushPara();
+    else if (/^([-*+]|\d+[.)])\s+/.test(line)) { flushPara(); blocks.push(line); }
+    else para.push(line);
+  }
+  flushSection();
+  return out;
+}
+
+function packBlocks(blocks) {
+  const pieces = [];
+  for (const b of blocks) {
+    const words = b.split(/\s+/);
+    if (words.length > MAX_WORDS) for (let i = 0; i < words.length; i += MAX_WORDS) pieces.push(words.slice(i, i + MAX_WORDS).join(" "));
+    else pieces.push(b);
+  }
+  const groups = []; let cur = [], count = 0;
+  for (const p of pieces) {
+    const n = p.split(/\s+/).length;
+    if (cur.length && count + n > MAX_WORDS) { groups.push(cur); cur = []; count = 0; }
+    cur.push(p); count += n;
+  }
+  if (cur.length) groups.push(cur);
+  let prev = [];
+  return groups.map(lines => {
+    let body = lines.join("\n");
+    if (prev.length) body = "… " + prev.slice(-OVERLAP).join(" ") + "\n" + body;
+    prev = lines.join(" ").split(/\s+/);
+    return body;
+  });
+}
+
+function buildIndex(chs) {
+  const tokenLists = chs.map(c => { const h = tokenize(c.heading); return [...h, ...h, ...tokenize(c.text)]; });
+  const df = new Map();
+  tokenLists.forEach(toks => new Set(toks).forEach(t => df.set(t, (df.get(t) || 0) + 1)));
+  const idf = new Map();
+  df.forEach((d, t) => idf.set(t, Math.log((1 + chs.length) / (1 + d)) + 1));
+  const vectorize = toks => {
+    const counts = new Map();
+    toks.forEach(t => { if (idf.has(t)) counts.set(t, (counts.get(t) || 0) + 1); });
+    const v = new Map(); let norm = 0;
+    counts.forEach((tf, t) => { const w = (1 + Math.log(tf)) * idf.get(t); v.set(t, w); norm += w * w; });
+    norm = Math.sqrt(norm);
+    v.forEach((w, t) => v.set(t, w / norm));
+    return v;
+  };
+  return { vectors: tokenLists.map(vectorize), vectorize };
+}
+
+function search(query, k = 3) {
+  const q = index.vectorize(tokenize(query));
+  const hits = [];
+  chunks.forEach((c, i) => {
+    let s = 0;
+    q.forEach((w, t) => { s += w * (index.vectors[i].get(t) || 0); });
+    if (s > 0) hits.push({ chunk: c, score: s });
+  });
+  return hits.sort((a, b) => b.score - a.score).slice(0, k);
+}
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v; else node.setAttribute(k, v);
+  }
+  for (const c of children) node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return node;
+}
+
+function highlighted(text, query) {
+  // Build highlighted text from text nodes only, never parsed HTML, so pasted notes cannot inject markup.
+  const terms = new Set(tokenize(query));
+  const frag = document.createDocumentFragment();
+  for (const part of text.split(/([A-Za-z0-9]+)/)) {
+    if (part && /^[A-Za-z0-9]+$/.test(part) && terms.has(stem(part.toLowerCase()))) frag.append(el("mark", {}, part));
+    else frag.append(document.createTextNode(part));
+  }
+  return frag;
+}
+
+function indexNotes() {
+  const text = document.getElementById("notes").value;
+  const status = document.getElementById("index-status");
+  if (text.length > MAX_NOTE_CHARS) { status.textContent = `Notes too long (limit ${MAX_NOTE_CHARS} characters).`; return; }
+  chunks = chunkNotes(text);
+  index = buildIndex(chunks);
+  const topics = new Set(chunks.map(c => c.topic)).size;
+  status.textContent = chunks.length
+    ? `Indexed ${chunks.length} chunks across ${topics} topic(s), ${extractFacts().length} definitions.`
+    : "No text found. Paste some notes first.";
+  document.getElementById("answer").replaceChildren();
+  document.getElementById("quiz-form").replaceChildren();
+  document.getElementById("quiz-result").replaceChildren();
+}
+
+function ask(question) {
+  const box = document.getElementById("answer");
+  question = question.trim();
+  if (!question) return;
+  if (!chunks.length) { box.replaceChildren(el("p", { class: "refusal" }, "Index some notes first.")); return; }
+  const hits = search(question);
+  if (!hits.length || hits[0].score < THRESHOLD) {
+    const best = hits.length ? hits[0].score.toFixed(2) : "0.00";
+    box.replaceChildren(el("p", { class: "refusal" },
+      `Not in your notes. (best match score ${best} is below the ${THRESHOLD.toFixed(2)} threshold)`));
+    return;
+  }
+  const used = hits.filter(h => h.score >= THRESHOLD / 2).slice(0, 2);
+  const nodes = [el("span", { class: "label" }, "Local fallback: quoted verbatim, no LLM")];
+  for (const h of used) {
+    nodes.push(el("div", { class: "chunk" },
+      el("div", { class: "meta" }, el("code", {}, `[${h.chunk.id}]`), ` ${h.chunk.title} > ${h.chunk.heading} · score ${h.score.toFixed(2)}`),
+      el("div", { class: "text" }, highlighted(h.chunk.text, question))));
+  }
+  box.replaceChildren(...nodes);
+}
+
+function extractFacts() {
+  const facts = [], seen = new Set();
+  for (const c of chunks) {
+    for (const line of c.text.split("\n")) {
+      if (line.startsWith("… ")) continue;
+      const m = line.match(/^[-*+]\s+\*\*([^*]{1,60})\*\*\s*:\s*(.{10,})$/);
+      if (m && !seen.has(m[1].trim().toLowerCase())) {
+        seen.add(m[1].trim().toLowerCase());
+        facts.push({ term: m[1].trim(), definition: m[2].trim().replace(/\.$/, ""), chunkId: c.id, topic: c.topic });
+      }
+    }
+  }
+  return facts;
+}
+
+function shuffle(list) {
+  const a = list.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+function pickDistractors(fact, facts) {
+  // Same-topic terms of similar length first: plausible, not giveaways.
+  const ranked = shuffle(facts.filter(f => f.term.toLowerCase() !== fact.term.toLowerCase()))
+    .sort((a, b) => ((a.topic !== fact.topic) - (b.topic !== fact.topic)) ||
+      (Math.abs(a.term.length - fact.term.length) - Math.abs(b.term.length - fact.term.length)));
+  const chosen = [];
+  for (const f of ranked) {
+    if (!chosen.some(c => c.toLowerCase() === f.term.toLowerCase())) chosen.push(f.term);
+    if (chosen.length === 3) break;
+  }
+  return chosen;
+}
+
+function newQuiz() {
+  const form = document.getElementById("quiz-form");
+  const result = document.getElementById("quiz-result");
+  result.replaceChildren();
+  const facts = extractFacts();
+  if (facts.length < 4) {
+    form.replaceChildren(el("p", { class: "refusal" },
+      "Need at least 4 definition lines like “- **Term**: definition” to build a grounded quiz."));
+    return;
+  }
+  quizItems = shuffle(facts).slice(0, 5).map(fact => ({
+    fact, options: shuffle([fact.term, ...pickDistractors(fact, facts)]),
+  }));
+  const nodes = quizItems.map((item, qi) => {
+    const fs = el("fieldset", {}, el("legend", {}, `Q${qi + 1}. Which term matches: “${item.fact.definition}”?`));
+    item.options.forEach((opt, oi) => {
+      const id = `q${qi}o${oi}`;
+      const input = el("input", { type: "radio", name: `q${qi}`, id, value: opt });
+      fs.append(el("label", { class: "opt", for: id }, input, opt));
+    });
+    fs.append(el("div", { class: "feedback", id: `fb${qi}` }));
+    return fs;
+  });
+  nodes.push(el("button", { type: "submit" }, "Check answers"));
+  form.replaceChildren(...nodes);
+}
+
+function checkQuiz(event) {
+  event.preventDefault();
+  let right = 0;
+  quizItems.forEach((item, qi) => {
+    const chosen = document.querySelector(`input[name="q${qi}"]:checked`);
+    document.querySelectorAll(`input[name="q${qi}"]`).forEach(input => {
+      const label = input.parentElement;
+      label.classList.remove("correct", "wrong");
+      if (input.value === item.fact.term) label.classList.add("correct");
+      else if (input === chosen) label.classList.add("wrong");
+    });
+    const ok = chosen && chosen.value === item.fact.term;
+    right += ok ? 1 : 0;
+    document.getElementById(`fb${qi}`).textContent =
+      `${ok ? "Correct." : chosen ? "Not quite." : "Not answered."} Answer: ${item.fact.term} · source [${item.fact.chunkId}]`;
+  });
+  document.getElementById("quiz-result").replaceChildren(
+    el("p", { class: "score" }, `Score: ${right} / ${quizItems.length}`));
+}
+
+document.getElementById("sample-btn").addEventListener("click", () => {
+  document.getElementById("notes").value = SAMPLE_NOTES;
+  indexNotes();
+});
+document.getElementById("index-btn").addEventListener("click", indexNotes);
+document.getElementById("ask-form").addEventListener("submit", e => {
+  e.preventDefault();
+  ask(document.getElementById("question").value);
+});
+document.querySelectorAll(".example").forEach(b => b.addEventListener("click", () => {
+  document.getElementById("question").value = b.textContent;
+  ask(b.textContent);
+}));
+document.getElementById("quiz-btn").addEventListener("click", newQuiz);
+document.getElementById("quiz-form").addEventListener("submit", checkQuiz);
+
+document.getElementById("notes").value = SAMPLE_NOTES;
+indexNotes();
+</script>
+</body>
+</html>
