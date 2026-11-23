@@ -18,7 +18,7 @@ from typing import Callable
 from urllib.parse import unquote, urlparse
 
 from . import ics as ics_mod
-from .d2l import D2LClient, D2LError, NotFoundError, SessionExpiredError
+from .d2l import D2LClient, D2LError, NotFoundError, ForbiddenError, SessionExpiredError
 from .db import Hub
 from .htmltext import sanitize, to_text
 from .syllabus import conflicts, parse_syllabus
@@ -62,7 +62,11 @@ def course_code(name: str, code: str) -> str:
         match = re.search(r"\b([A-Z]{2,6})\s?-?\s?(\d{3}[A-Z]?)\b", text or "")
         if match:
             return f"{match.group(1)} {match.group(2)}"
-    return (code or name or "COURSE")[:16]
+    for text in (name, code):    # PD 22, PD22_081_cel_1269: two-digit course numbers
+        match = re.search(r"\b([A-Z]{2,6})\s?(\d{2}[A-Z]?)(?=[\s_\-.]|$)", text or "")
+        if match:
+            return f"{match.group(1)} {match.group(2)}"
+    return re.sub(r"\s+", " ", name or code or "Course").strip()[:28]
 
 
 def course_term(name: str, code: str) -> str:
@@ -233,8 +237,8 @@ class Syncer:
                 return fn()
             except SessionExpiredError:
                 raise
-            except NotFoundError:
-                return None
+            except (NotFoundError, ForbiddenError):
+                return None            # tool missing or not open to students in this course
             except D2LError as exc:
                 self.report.errors.append(f"{code} {label}: {exc}")
                 return None
@@ -374,7 +378,8 @@ class Syncer:
         old = self.hub.one("SELECT * FROM files WHERE uid=?", (uid,))
         local_path = old["local_path"] if old else ""
         size = old["size"] if old else None
-        needs = kind == "file" and self.download and (not old or old["modified"] != modified or not local_path
+        media = re.search(r"\.(mp4|mov|m4v|webm|avi|mkv|mp3|m4a|wav|aac)$", topic_filename(topic), re.I)
+        needs = kind == "file" and self.download and not media and (not old or old["modified"] != modified or not local_path
                                                       or not Path(local_path).exists())
         if needs:
             try:

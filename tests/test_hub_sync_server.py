@@ -184,6 +184,26 @@ class SyncTests(unittest.TestCase):
         self.run_sync()                                         # throttled: no second alert
         self.assertEqual(len(self.hub.changes()), 1)
 
+    def test_forbidden_course_tool_is_not_a_dead_session(self):
+        self.fake.state[f"{LE}/grades/values/myGradeValues/"] = 403
+        report = self.run_sync()
+        self.assertFalse(report.login_needed)
+        self.assertEqual(report.errors, [])
+        self.assertIsNotNone(self.hub.item(f"d2l:dropbox:{OU}:11"))
+
+    def test_videos_are_linked_not_downloaded(self):
+        toc = self.fake.state[f"{LE}/content/toc"]["Modules"][0]["Topics"]
+        toc.append({"TopicId": 62, "Title": "Lecture recording", "TypeIdentifier": "File",
+                    "Url": "/content/lecture1.mp4"})
+        self.run_sync()
+        self.assertFalse(any("topics/62/file" in r.full_url for r in self.fake.requests))
+        self.assertEqual(self.hub.one("SELECT local_path FROM files WHERE uid=?", (f"d2l:topic:{OU}:62",))["local_path"], "")
+
+    def test_calendar_dates_have_milliseconds(self):
+        self.run_sync()
+        query = next(r.full_url for r in self.fake.requests if "calendar/events" in r.full_url)
+        self.assertIn("startDateTime=2026-09-03T15%3A00%3A00.000Z", query)
+
     def test_login_page_instead_of_json(self):
         self.fake.state["/d2l/api/lp/1.64/users/whoami"] = b"<!doctype html><title>Sign in</title>"
         with self.assertRaises(SessionExpiredError):
@@ -191,6 +211,9 @@ class SyncTests(unittest.TestCase):
 
     def test_course_code_and_term(self):
         self.assertEqual(course_code("STAT 230 - Probability (Fall 2026)", "STAT230-1269"), "STAT 230")
+        self.assertEqual(course_code("PD 22 Online - Fall 2026", "PD22_081_cel_1269"), "PD 22")
+        self.assertEqual(course_code("Engineering Co-op Community", "Engineering Co-op Community"),
+                         "Engineering Co-op Community")
         self.assertEqual(course_term("Something", "CS246-1271"), "Winter 2027")
         self.assertEqual(course_term("Something", "STAT230_1269"), "Fall 2026")
         self.assertEqual(course_term("Something", "ECON101"), "")

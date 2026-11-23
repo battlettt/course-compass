@@ -220,7 +220,9 @@ async function startSync() {
     S.app.sync = s; drawSync();
     if (!s.running) {
       clearInterval(poll);
-      toast(s.ok === false ? 'Sync finished with problems: see Settings' : 'Sync complete', s.ok === false ? 'error' : '');
+      const notice = (s.lines || []).find(l => /^(Demo data|Not connected)/.test(l));
+      if (notice) toast(S.app.demo ? 'This is the demo, so there is nothing to sync. Run `course-compass login`, then `course-compass serve`, to see your real courses.' : notice, 'error');
+      else toast(s.ok === false ? 'Sync finished with problems: see Settings' : 'Sync complete', s.ok === false ? 'error' : '');
       await refreshState(); route();
     }
   }, 1500);

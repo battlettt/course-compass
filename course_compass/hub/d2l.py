@@ -54,6 +54,10 @@ class NotFoundError(D2LError):
     pass
 
 
+class ForbiddenError(D2LError):
+    """403 on a course tool: you have no access to it (common for co-op and PD courses), not a dead session."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401 - urllib API
         return None   # surface the 3xx as an HTTPError instead of following it
@@ -126,6 +130,10 @@ def parse_cookie_header(text: str) -> dict[str, str]:
 
 # ---------------------------------------------------------------- client
 
+def _utc_ms(iso: str) -> str:
+    return iso[:19] + ".000Z" if iso.endswith("Z") and len(iso) == 20 else iso
+
+
 class D2LClient:
     def __init__(self, session: Session, opener: Callable | None = None, delay: float = 0.35,
                  versions: dict[str, str] | None = None, sleep: Callable[[float], None] = time.sleep):
@@ -159,6 +167,8 @@ class D2LClient:
                         raise D2LError(f"Response from {path} is larger than {limit} bytes; skipped.")
                     return data
             except urllib.error.HTTPError as exc:
+                if exc.code == 403 and "/users/whoami" not in path:
+                    raise ForbiddenError(path) from None
                 if exc.code in (301, 302, 303, 307, 308, 401, 403):
                     raise SessionExpiredError(
                         "LEARN session expired or not signed in. Run `course-compass login`.") from None
@@ -244,7 +254,8 @@ class D2LClient:
         return self._object_list(self.le(ou, "quizzes/"))
 
     def calendar_events(self, ou: int, start: str, end: str) -> list[dict]:
-        query = urlencode({"startDateTime": start, "endDateTime": end})
+        # Brightspace wants UTCDateTime as yyyy-MM-ddTHH:mm:ss.fffZ; without milliseconds it answers 400
+        query = urlencode({"startDateTime": _utc_ms(start), "endDateTime": _utc_ms(end)})
         return self._object_list(self.le(ou, "calendar/events/myEvents/") + "?" + query)
 
     def toc(self, ou: int) -> dict:
