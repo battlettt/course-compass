@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "course-compass"
-version = "0.1.0"
-description = "A study companion grounded in your own notes: cited answers, quizzes, spaced review."
+version = "0.2.0"
+description = "A school hub for Waterloo LEARN (D2L): deadlines, calendar feeds, grades, study planner, time tracking and a tutor grounded in your own notes."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
@@ -19,5 +19,13 @@ classifiers = [
 [project.scripts]
 course-compass = "course_compass.cli:main"
 
+[project.optional-dependencies]
+sync = ["playwright>=1.40"]
+pdf = ["pypdf>=4"]
+
 [tool.setuptools]
-packages = ["course_compass"]
+packages = ["course_compass", "course_compass.hub"]
+
+[tool.setuptools.package-data]
+course_compass = ["web/*", "web/vendor/katex/*", "web/vendor/katex/fonts/*"]
+"course_compass.hub" = ["demo_notes/*.md"]

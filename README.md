@@ -1,7 +1,18 @@
 # Course Compass
 
-A study companion that turns **your own course notes** into cited answers, quizzes and a spaced-review plan,
-grounded in those notes so it cannot invent facts.
+A school hub for Waterloo LEARN and a study companion that turns **your own course notes** into cited answers,
+quizzes and a spaced-review plan, grounded in those notes so it cannot invent facts.
+
+**New in 0.2: the hub** (`course-compass serve`). It syncs LEARN (D2L Brightspace) and shows every deadline,
+exam, announcement, file and grade in one local web app: a calendar you can subscribe to from Apple Calendar,
+a syllabus extractor, grade standing with "what do I need" and what-if scores, a study planner that fits work
+into your free hours, a focus timer with weekly reports, change alerts, exam-prep plans and a tutor that walks
+you through problems using your own slides. Try it on made-up data with `python3 -m course_compass demo`.
+Full guide: [docs/HUB.md](docs/HUB.md).
+
+![The hub's Today view on demo data](docs/hub-today.png)
+
+The study tools:
 
 - **Ask**: ask a question and get an answer that cites the exact note chunks it came from, or an honest
   *"Not in your notes."* when nothing matches well enough.
@@ -19,7 +30,9 @@ no signup beyond the Claude account you already have) or any OpenAI-compatible c
 own key. Without either, a clearly labelled **local fallback** runs entirely offline. Both LLM paths have been
 run against a real model on a 20-question, 3-quiz evaluation: see [docs/EVAL_LLM.md](docs/EVAL_LLM.md).
 
-Python 3.11+, **standard library only**: nothing to `pip install`.
+Python 3.11+, **standard library only**: nothing to `pip install`. Two optional extras: `pip install ".[sync]"`
+(Playwright, for signing in to LEARN in a browser window) and `pip install ".[pdf]"` (pypdf, for PDFs when
+`pdftotext` is not installed).
 
 ## Why it matters
 
@@ -388,7 +401,14 @@ It is always labelled `LOCAL FALLBACK ... no LLM` and never presents its output 
   per call, and every call counts against your Claude plan's usage limits.
 - **The sample notes are generic** textbook-level summaries written for this project, not any real course.
   The benchmark is small (26 questions on 4 short notes), so treat its percentages as rough.
-- One local JSON file, one user. No sync, no accounts.
+- One user, local files. The hub is for you on your own Mac, not a shared server.
+- **The LEARN sync has not been run against a live account by this repo's tests.** It is built on the
+  documented Brightspace API and tested against a fake that returns those response shapes. Check your first
+  real sync (see [docs/HUB.md](docs/HUB.md)).
+- **The syllabus extractor reads lines, not meaning.** Outlines written as tables or prose can be missed or
+  misread. That is why every extracted value is shown with its source line.
+- **Planner estimates are guesses** until you log time: they start from the kind of work and its weight and
+  then calibrate per course from your timer.
 
 ## Tests
 
@@ -403,6 +423,12 @@ storage, path guards, the demo page, full CLI runs on the sample notes, and the 
 layers, grounded-vs-illustrative example labels, `.ics` round trips, progress with and without history, and
 cram topic choice and SM-2 recording.
 
+The hub tests add a fake Brightspace (first sync, change detection, submission detection, expired sessions,
+failed endpoints that must not delete anything, cookies only sent to LEARN), the syllabus parser, recurring
+calendar events, the HTML sanitizer, `.pptx`/`.docx` extraction and its zip guards, grade standing and what-if,
+the planner, the timer, exam prep, the tutor's citation validation and repair, alerts, the web server's token,
+Host and CSP guards and calendar-feed secrets, and the hub CLI commands. 291 tests in all.
+
 The real-model evaluation is separate, because it needs a signed-in Claude Code CLI (or a key) and takes about
 3 minutes:
 
@@ -416,6 +442,9 @@ python3 scripts/eval_llm.py                     # Claude CLI, default model; see
 course_compass/   cli, chunking, retrieval, answering, quiz, review, store, llm, prompts, ingest, evaluation,
                   llm_eval (real-model eval scoring), explain (simplify + examples), reminders (due digest +
                   .ics), progress (trends + cram topic choice)
+course_compass/hub/  the school hub: d2l (LEARN client), sync, syllabus, ics, extract, notes, grades, planner,
+                  examprep, tutor, checklist, notify, jobs, server, demo, commands
+course_compass/web/  the hub's web app (vanilla JS, no build step) and vendored KaTeX
 tests/            unittest suite + tests/examples/questions.json (retrieval benchmark)
 examples/notes/   4 original sample notes
 examples/eval-notes/  4 more notes for the LLM eval (operations, project management, decision analysis,
@@ -423,7 +452,7 @@ examples/eval-notes/  4 more notes for the LLM eval (operations, project managem
 examples/eval/    llm_eval.json: the real-model eval set (20 questions, 3 quizzes)
 scripts/          eval_llm.py: runs the real-model eval
 demo/index.html   static, offline demo
-docs/             LEARNING.md (concepts + measurements), ARCHITECTURE.md, PROMPTS.md (verbatim prompts),
+docs/             HUB.md (the school hub), LEARNING.md (concepts + measurements), ARCHITECTURE.md, PROMPTS.md (verbatim prompts),
                   EVAL_LLM.md (real-model eval: method, numbers, fixes)
 ```
 

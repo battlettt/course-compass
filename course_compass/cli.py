@@ -32,6 +32,12 @@ from .retrieval import TfidfIndex
 from .review import (Card, due_queue, new_card, quality_from_correct, schedule, study_plan,
                      topic_stats, weak_topics)
 from .store import StoreError, load_db, save_db
+from .hub.commands import add_commands as add_hub_commands
+from .hub.d2l import D2LError
+from .hub.db import HubError
+from .hub.extract import ExtractError
+from .hub.ics import ICSError
+from .hub.tutor import TutorError
 
 DEFAULT_DB = ".course-compass/db.json"
 EXIT_OK = 0
@@ -609,8 +615,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="course-compass",
-        description="A study companion grounded in your own notes: ask, quiz, review, plan, plus "
-                    "simplify, examples, due, progress and cram.",
+        description="A study companion grounded in your own notes (ask, quiz, review, plan, simplify, examples, "
+                    "due, progress, cram) and a school hub for Waterloo LEARN / D2L (login, sync, serve, today, "
+                    "digest, calendar, grades, timer, schedule).",
         epilog="LLM features (ask, quiz, simplify, examples, cram) name the provider in their header; "
                "review, due, progress, plan and export are local data and need no LLM.")
     parser.add_argument("--version", action="version", version=f"course-compass {__version__}")
@@ -697,6 +704,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--overlaps", default="0,20")
     p.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     p.set_defaults(func=cmd_eval)
+
+    # the school hub: LEARN sync, calendar, grades, planner, tutor (course_compass/hub)
+    home = argparse.ArgumentParser(add_help=False)
+    home.add_argument("--home", help="hub folder (default $COURSE_COMPASS_HOME or ~/.course-compass)")
+    add_hub_commands(sub, home)
     return parser
 
 
@@ -713,6 +725,6 @@ def main(argv: list[str] | None = None, out=None) -> int:
     try:
         return args.func(args, out)
     except (CLIError, IngestError, StoreError, AnswerError, QuizError, ExplainError, MissingKeyError,
-            LLMError, ValueError, OSError) as exc:
+            LLMError, ValueError, OSError, D2LError, HubError, ExtractError, ICSError, TutorError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR

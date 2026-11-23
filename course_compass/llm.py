@@ -191,9 +191,10 @@ class ClaudeCLIConfig:
     timeout: float = DEFAULT_CLAUDE_TIMEOUT
 
     @classmethod
-    def from_env(cls, env: dict | None = None, which: Callable[[str], str | None] = shutil.which
+    def from_env(cls, env: dict | None = None, which: Callable[[str], str | None] | None = None
                  ) -> "ClaudeCLIConfig":
         env = os.environ if env is None else env
+        which = which or shutil.which  # looked up at call time so tests can patch shutil.which
         wanted = env.get("COURSE_COMPASS_CLAUDE_BIN", "").strip() or "claude"
         binary = which(wanted)
         if not binary:

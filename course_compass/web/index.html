@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="cc-token" content="__CC_TOKEN__">
+<meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121417" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Compass">
+<title>Course Compass</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/vendor/katex/katex.min.css">
+<link rel="stylesheet" href="/app.css">
+<script src="/vendor/katex/katex.min.js" defer></script>
+<script src="/app.js" type="module"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell">
+  <aside class="side" aria-label="Main">
+    <a class="brand" href="#/today">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13.5"/><path d="M16 6l3.6 10L16 26l-3.6-10z"/><circle cx="16" cy="16" r="1.6"/></svg>
+      <span>Course Compass</span>
+    </a>
+    <button class="search-trigger" type="button" data-action="palette"><span>Search everything</span><kbd>⌘K</kbd></button>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot">
+      <div id="timer-widget"></div>
+      <div id="sync-widget"></div>
+    </div>
+  </aside>
+  <main id="main" class="main" tabindex="-1">
+    <div class="boot">Loading your hub…</div>
+  </main>
+</div>
+<nav class="tabbar" id="tabbar" aria-label="Main"></nav>
+<div id="drawer-root"></div>
+<div id="toast-root" aria-live="polite"></div>
+</body>
+</html>

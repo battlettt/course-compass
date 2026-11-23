@@ -1,7 +1,8 @@
 # Architecture
 
-Course Compass is a small, standard-library-only Python package plus one static HTML page. There is no
-server: every command reads a local JSON file, does its work, and writes the file back.
+Course Compass is a standard-library-only Python package in two layers. The study core (below) is a set of
+commands that read a local JSON file, do their work and write it back. The school hub (`course_compass/hub/`,
+last section) adds a LEARN sync, a SQLite store and a local web app on top of that core.
 
 ## Data flow
 
@@ -128,3 +129,41 @@ inserted as DOM text nodes, so pasted notes cannot inject HTML. `tests/test_demo
 `tests/` (unittest, stdlib only), one file per module plus `test_cli.py` for end-to-end runs through
 `cli.main()` on the sample notes in local mode, `test_evaluation.py` pinning the retrieval numbers quoted
 in `LEARNING.md`, and `test_docs.py` checking `PROMPTS.md` matches the code.
+
+## The school hub
+
+```text
+ LEARN (D2L Brightspace API, your session cookies, GET only)
+      │  d2l.py: D2LClient (host-pinned, no redirects, size caps, retry on 429/5xx)
+      ▼
+ sync.py: Syncer ──► hub.sqlite3 (db.py: courses, items, announcements, files, grades, syllabus, changes,
+      │                time_sessions, plan_blocks, sync_runs)
+      ├─ files/<CODE>/<module>/...        downloaded content
+      ├─ syllabus.py   outline text ─► grading scheme, key dates, contacts (each with its source line)
+      └─ changes       new work, moved dates, grades, announcements ─► notify.py (Mac, ntfy)
+ iCal feed fallback ─► ics.py parse ─► items           timetable .ics ─► class items (busy time)
+
+ jobs.full_refresh:  sync ─► notes.build_index ─► planner.replan ─► notify.send_pending
+ notes.py:   LEARN files + notes/<CODE>/ ─► extract.py (pdf, pptx, docx, html, ipynb, OCR) ─► chunks ─► study.json
+             (the same db the study core uses, so ask / quiz / review / cram work on your LEARN slides)
+ planner.py: open work + estimates (calibrated from logged time) + availability - busy ─► EDF study blocks
+ grades.py:  grade rows + syllabus components + what-ifs ─► standing, projected, needed
+ tutor.py:   retrieval ─► prompt ─► LLM ─► validate citations ─► repair once   (or a labelled local fallback)
+
+ server.py (127.0.0.1, token + Host check + CSP) ─► /api/* JSON ─► web/app.js (vanilla JS, hash router)
+                                                 ─► /feed/<secret>/<name>.ics ─► Apple Calendar subscription
+```
+
+Design choices:
+
+- **SQLite for the hub, JSON for the study core.** The hub has relational data that changes in place on every
+  sync (items, grades, changes), so it uses SQLite with WAL and one connection guarded by a lock. The study
+  core's JSON file is reused unchanged, so every existing command works on notes that came from LEARN.
+- **Per-endpoint removal.** An item is only deleted as "removed from LEARN" when the endpoint that lists it
+  answered successfully on this sync. A timeout on quizzes can never wipe your quizzes.
+- **Quiet first sync.** Importing a course for the first time makes one "course added" change, not hundreds of
+  alerts.
+- **No build step for the web app.** One ES module and one stylesheet, served as files, so the CSP can forbid
+  inline script and outside requests entirely. KaTeX is vendored for math.
+- **Feeds instead of exports.** Apple Calendar subscribes to `webcal://` feeds and re-fetches them, so moved due
+  dates follow automatically. Deadlines are 15-minute events that end at the due time, with alarms.
