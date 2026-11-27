@@ -3,69 +3,148 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Course Compass demo: ask and quiz from your own notes</title>
 <style>
+  /* A cartographer's field notebook, open on the desk: your notes on the left page,
+     questions and a quiz on the right. System fonts only; this page loads nothing. */
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #5b6475; --line: #d9dde5;
-    --accent: #2457c5; --accent-ink: #ffffff; --good: #1d7a46; --good-bg: #e7f5ec;
-    --bad: #b3261e; --bad-bg: #fbeceb; --warn-bg: #fff6df; --warn-ink: #6b4e00; --mark: #fff1a8;
+    --desk: #e9ece3; --page: #f8f9f4; --page-2: #eef0e7; --ink: #1b2630; --muted: #56626a; --line: #d2d7c8; --line-2: #b3baa8;
+    --grid: rgb(30 88 115 / 7%); --accent: #1d5670; --accent-ink: #f8f9f4; --accent-soft: #dae6e8; --route: #bf3f1d; --route-ink: #a12e15;
+    --good: #2c6631; --good-bg: #dde8d3; --bad: #a12e15; --bad-bg: #f3ddd3; --warn-bg: #efe5c6; --warn-ink: #6b4b05; --mark: #f4df8a;
+    --shadow: 0 1px 0 rgb(27 38 48 / 6%), 0 18px 36px -26px rgb(27 38 48 / 50%);
+    --serif: "Iowan Old Style", "Charter", "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+    --sans: "Seravek", "Avenir Next", "Gill Sans Nova", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --mono: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+    --ease: cubic-bezier(.2, .8, .2, 1);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #12151b; --panel: #1b2029; --ink: #e8ebf1; --muted: #a3abba; --line: #333b49;
-      --accent: #7aa2ff; --accent-ink: #0d1220; --good: #6fd39a; --good-bg: #173325;
-      --bad: #ff9b93; --bad-bg: #3a1d1b; --warn-bg: #3a3018; --warn-ink: #f3d68a; --mark: #5a4d12;
+      --desk: #10151a; --page: #172027; --page-2: #1e2930; --ink: #e7e5d9; --muted: #a2a99f; --line: #27333a; --line-2: #3b4851;
+      --grid: rgb(134 193 214 / 5%); --accent: #8bc3d7; --accent-ink: #0d1a20; --accent-soft: #1b3440; --route: #f0825f; --route-ink: #f2906f;
+      --good: #92c98b; --good-bg: #1b2e1d; --bad: #f2906f; --bad-bg: #3b1d14; --warn-bg: #33290f; --warn-ink: #e8c375; --mark: #6b5814;
+      --shadow: 0 1px 0 rgb(0 0 0 / 35%), 0 22px 40px -26px rgb(0 0 0 / 90%);
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-         background: var(--bg); color: var(--ink); }
-  header, main, footer { max-width: 960px; margin: 0 auto; padding: 0 20px; }
-  header { padding-top: 28px; }
-  h1 { margin: 0 0 4px; font-size: 1.7rem; }
-  h2 { margin: 0 0 12px; font-size: 1.2rem; }
-  .lede { margin: 0 0 16px; color: var(--muted); }
-  .banner { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 10px 14px;
-            margin-bottom: 20px; font-size: .95rem; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-            padding: 18px 20px; margin-bottom: 20px; }
-  label { display: block; font-weight: 600; margin-bottom: 6px; }
-  textarea, input[type=text] { width: 100%; font: inherit; color: inherit; background: var(--bg);
-            border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
-  textarea { min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-             font-size: .88rem; }
-  textarea:focus, input:focus, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
-  .row input[type=text] { flex: 1 1 320px; }
-  button { font: inherit; font-weight: 600; border: 1px solid var(--accent); border-radius: 6px;
-           padding: 9px 16px; min-height: 44px; cursor: pointer; background: var(--accent); color: var(--accent-ink); }
-  button.secondary { background: transparent; color: var(--accent); }
+  body { margin: 0; font: 16px/1.55 var(--sans); color: var(--ink); background-color: var(--desk);
+         background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+         background-size: 24px 24px; }
+  header, main, footer { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  header { padding-top: 34px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 20px; align-items: center; }
+  .mark { width: 64px; height: 64px; grid-row: span 2; }
+  .mark .ring { fill: var(--page); stroke: var(--ink); stroke-width: 1.2; }
+  .mark .ring-2 { fill: none; stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 1 3; }
+  .mark .tick { stroke: var(--muted); stroke-width: 1; }
+  .mark .star { fill: var(--ink); }
+  .mark .star-b { fill: var(--page); stroke: var(--ink); stroke-width: .8; }
+  .mark .north { fill: var(--route); }
+  .mark .hub { fill: var(--page); stroke: var(--ink); stroke-width: 1; }
+  h1, h2, legend { font-family: var(--serif); font-weight: 600; text-wrap: balance; }
+  h1 { margin: 0; font-size: 2.2rem; line-height: 1.1; letter-spacing: -0.01em; align-self: end; }
+  h2 { margin: 0 0 14px; font-size: 1.3rem; display: flex; align-items: center; gap: 12px; }
+  .lede { margin: 0; color: var(--muted); font: italic 1.08rem/1.45 var(--serif); align-self: start; max-width: 62ch; }
+  .banner { grid-column: 1 / -1; margin: 18px 0 22px; background: var(--warn-bg); color: var(--warn-ink); border: 1px dashed currentColor;
+            border-radius: 2px; padding: 10px 14px; font-size: .95rem; }
+  .banner strong { font-variant-caps: all-small-caps; letter-spacing: .08em; font-size: 1.05rem; }
+  /* the open notebook */
+  .spread { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); background: var(--page); border: 1px solid var(--line-2);
+            box-shadow: var(--shadow); border-radius: 3px; position: relative; margin-bottom: 24px; }
+  .spread::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(46.5% - 1px); width: 26px; transform: translateX(-50%); pointer-events: none;
+                    background: linear-gradient(90deg, transparent, rgb(27 38 48 / 9%) 45%, rgb(27 38 48 / 14%) 50%, rgb(27 38 48 / 9%) 55%, transparent); }
+  .page-l { padding: 26px 30px 30px 28px; border-right: 1px solid var(--line); }
+  .page-r { padding: 26px 28px 30px 34px; }
+  section + section { margin-top: 30px; padding-top: 24px; border-top: 1px dotted var(--line-2); }
+  /* numbered waypoints on the route through the demo */
+  .wp { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--route); color: var(--route-ink); background: var(--page);
+        display: grid; place-items: center; font: 700 .8rem var(--mono); }
+  label { display: block; font-weight: 650; margin-bottom: 6px; font-size: .95rem; color: var(--muted); }
+  code { font: .88em var(--mono); color: var(--ink); background: var(--page-2); padding: 0 4px; border-radius: 2px; }
+  textarea, input[type=text] { width: 100%; font: inherit; color: inherit; background: var(--page); border: 1px solid var(--line-2); border-radius: 2px; padding: 10px 12px;
+                               transition: border-color .2s var(--ease), box-shadow .2s var(--ease); }
+  input::placeholder { color: var(--muted); opacity: 1; }
+  /* ruled notebook paper for the notes */
+  textarea { min-height: 380px; resize: vertical; font: .86rem/24px var(--mono); padding: 4px 12px; background-color: var(--page);
+             background-image: linear-gradient(transparent 23px, var(--line) 23px); background-size: 100% 24px; background-position: 0 4px; background-attachment: local; }
+  textarea:focus, input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .row input[type=text] { flex: 1 1 260px; }
+  button { font: inherit; font-weight: 650; border: 1px solid color-mix(in srgb, var(--accent) 70%, var(--ink)); border-bottom-width: 2px; border-radius: 3px;
+           padding: 8px 16px; min-height: 44px; cursor: pointer; background: var(--accent); color: var(--accent-ink);
+           transition: transform .15s var(--ease), background-color .2s var(--ease), border-color .2s var(--ease); }
+  button:hover { background: color-mix(in srgb, var(--accent) 88%, var(--ink)); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button.secondary { background: var(--page); color: var(--ink); border-color: var(--line-2); }
+  button.secondary:hover { border-color: var(--muted); background: var(--page); }
+  button.example { font: italic .98rem var(--serif); font-weight: 400; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   .status { color: var(--muted); font-size: .92rem; }
-  .label { display: inline-block; font-size: .78rem; font-weight: 700; letter-spacing: .03em;
-           text-transform: uppercase; padding: 2px 8px; border-radius: 4px; background: var(--warn-bg);
-           color: var(--warn-ink); margin-bottom: 8px; }
-  .refusal { background: var(--bad-bg); color: var(--bad); padding: 10px 14px; border-radius: 6px; }
-  .chunk { border-left: 4px solid var(--accent); padding: 8px 12px; margin: 10px 0; background: var(--bg);
-           border-radius: 0 6px 6px 0; }
-  .chunk .meta { font-size: .85rem; color: var(--muted); }
-  .chunk .text { white-space: pre-wrap; }
-  .chunk code { font-weight: 700; }
-  mark { background: var(--mark); color: inherit; padding: 0 1px; }
-  fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 14px; padding: 12px 14px; }
-  legend { font-weight: 600; padding: 0 6px; }
-  .opt { display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px; border-radius: 4px; }
-  .opt input { margin-top: 5px; width: 18px; height: 18px; }
-  .opt.correct { background: var(--good-bg); color: var(--good); font-weight: 600; }
-  .opt.wrong { background: var(--bad-bg); color: var(--bad); }
-  .feedback { font-size: .9rem; margin-top: 6px; }
-  .score { font-size: 1.1rem; font-weight: 700; }
-  footer { color: var(--muted); font-size: .88rem; padding-bottom: 32px; }
+  #index-status { font-family: var(--serif); font-style: italic; }
+  .label { display: inline-block; font: 650 .95rem var(--serif); font-variant-caps: all-small-caps; letter-spacing: .1em; color: var(--warn-ink);
+           margin: 18px 0 4px; }
+  .refusal { background: var(--bad-bg); color: var(--bad); padding: 10px 14px; border-radius: 1px; border-left: 3px solid currentColor; margin: 16px 0 0; }
+  /* answers: each quoted chunk is a note pinned into the notebook, with its id on a pin tag */
+  #answer { display: grid; gap: 16px; }
+  .chunk { position: relative; border: 1px solid var(--line-2); padding: 14px 15px 12px; background: var(--page);
+           box-shadow: 0 1px 0 var(--line), 0 12px 20px -16px rgb(0 0 0 / 50%); margin: 6px 0 0; }
+  .chunk:nth-of-type(odd) { transform: rotate(-.4deg); }
+  .chunk:nth-of-type(even) { transform: rotate(.35deg); }
+  .chunk::before { content: ""; position: absolute; top: -6px; left: 16px; width: 12px; height: 12px; border-radius: 50%;
+                   background: radial-gradient(circle at 35% 35%, color-mix(in srgb, var(--route) 40%, #fff) 0 20%, var(--route) 55%); box-shadow: 0 2px 2px rgb(0 0 0 / 25%); }
+  .chunk .meta { font: italic .88rem var(--serif); color: var(--muted); margin-bottom: 6px; }
+  .chunk .meta code { font: 600 .78rem var(--mono); font-style: normal; color: var(--route-ink); background: color-mix(in srgb, var(--route) 9%, var(--page));
+                      border: 1px solid color-mix(in srgb, var(--route) 45%, transparent); padding: 1px 6px; border-radius: 2px; }
+  .chunk .text { white-space: pre-wrap; font: 1rem/1.6 var(--serif); overflow-wrap: anywhere; }
+  mark { background: var(--mark); color: inherit; padding: 0 2px; border-radius: 1px; }
+  /* the quiz: each question a stage on the route */
+  #quiz-form { margin-top: 6px; position: relative; }
+  fieldset { border: 0; border-left: 2px dashed color-mix(in srgb, var(--route) 55%, transparent); margin: 0 0 4px 9px; padding: 4px 0 16px 22px; position: relative; min-width: 0; }
+  fieldset::before { content: ""; position: absolute; left: -7px; top: 9px; width: 12px; height: 12px; border-radius: 50%; background: var(--page); border: 3px solid var(--route); }
+  legend { float: left; width: 100%; padding: 0; margin-bottom: 8px; font-size: 1.04rem; line-height: 1.45; }
+  legend + * { clear: both; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 7px 10px; border-radius: 2px; border: 1px solid transparent; margin: 0; font-weight: 500;
+         color: var(--ink); cursor: pointer; transition: background-color .2s var(--ease), border-color .2s var(--ease); }
+  .opt:hover { border-color: var(--line-2); }
+  .opt input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+  .opt.correct { background: var(--good-bg); color: var(--good); font-weight: 650; border-color: var(--good); }
+  .opt.wrong { background: var(--bad-bg); color: var(--bad); border-color: var(--bad); }
+  .feedback { font: .9rem var(--sans); margin-top: 6px; color: var(--muted); }
+  #quiz-form > button { margin-left: 33px; }
+  .score { font: 600 1.4rem var(--serif); margin: 16px 0 0; }
+  .score::before { content: ""; display: inline-block; width: 14px; height: 14px; background: var(--route); transform: rotate(45deg); margin-right: 12px; vertical-align: 1px; }
+  footer { color: var(--muted); font: italic .92rem/1.5 var(--serif); padding-bottom: 36px; max-width: 1180px; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  @media (prefers-reduced-motion: no-preference) {
+    .chunk, fieldset, .refusal, .score { animation: settle .4s var(--ease) both; }
+    @keyframes settle { from { opacity: 0; translate: 0 6px; } }
+  }
+  @media (max-width: 900px) {
+    .spread { grid-template-columns: minmax(0, 1fr); }
+    .spread::before { display: none; }
+    .page-l { border-right: 0; border-bottom: 1px dashed var(--line-2); }
+    textarea { min-height: 240px; }
+  }
+  @media (max-width: 600px) {
+    header, main, footer { padding: 0 16px; }
+    header { padding-top: 22px; column-gap: 14px; }
+    .mark { width: 48px; height: 48px; }
+    h1 { font-size: 1.7rem; }
+    .lede { grid-column: 1 / -1; margin-top: 6px; }
+    .page-l, .page-r { padding: 20px 16px 22px; }
+    .spread { margin-left: -4px; margin-right: -4px; }
+  }
 </style>
 </head>
 <body>
 <header>
+  <svg class="mark" viewBox="-34 -34 68 68" aria-hidden="true">
+    <circle class="ring" r="32"/><circle class="ring-2" r="23"/>
+    <path class="tick" d="M0-32v5M32 0h-5M0 32v-5M-32 0h5M22.6-22.6l-3 3M22.6 22.6l-3-3M-22.6 22.6l3-3M-22.6-22.6l3 3"/>
+    <path class="star" d="M0 0L4-4L24 0ZM0 0L4 4L0 24ZM0 0L-4 4L-24 0ZM0 0L-4-4L0-24Z"/>
+    <path class="star-b" d="M0 0L4 4L24 0ZM0 0L-4 4L0 24ZM0 0L-4-4L-24 0Z"/>
+    <path class="north" d="M0 0L4-4L0-26L-4-4Z"/><circle class="hub" r="2.6"/>
+  </svg>
   <h1>Course Compass</h1>
   <p class="lede">Ask questions and take a quiz grounded only in your own notes, with citations to the exact chunk.</p>
   <div class="banner" role="note">
@@ -76,42 +155,48 @@
 </header>
 
 <main>
-  <section aria-labelledby="notes-h">
-    <h2 id="notes-h">1. Your notes</h2>
-    <label for="notes">Paste markdown notes (use <code># headings</code> and <code>- **Term**: definition</code> lines)</label>
-    <textarea id="notes" spellcheck="false"></textarea>
-    <div class="row">
-      <button id="index-btn" type="button">Index notes</button>
-      <button id="sample-btn" type="button" class="secondary">Load sample notes</button>
-      <span id="index-status" class="status" role="status" aria-live="polite"></span>
+  <div class="spread">
+    <div class="page-l">
+      <section aria-labelledby="notes-h">
+        <h2 id="notes-h"><span class="wp" aria-hidden="true">1</span>Your notes</h2>
+        <label for="notes">Paste markdown notes (use <code># headings</code> and <code>- **Term**: definition</code> lines)</label>
+        <textarea id="notes" spellcheck="false"></textarea>
+        <div class="row">
+          <button id="index-btn" type="button">Index notes</button>
+          <button id="sample-btn" type="button" class="secondary">Load sample notes</button>
+          <span id="index-status" class="status" role="status" aria-live="polite"></span>
+        </div>
+      </section>
     </div>
-  </section>
 
-  <section aria-labelledby="ask-h">
-    <h2 id="ask-h">2. Ask a question</h2>
-    <form id="ask-form" class="row">
-      <label for="question" class="sr-only">Question</label>
-      <input id="question" type="text" maxlength="500" placeholder="e.g. What is a p-value?" autocomplete="off">
-      <button type="submit">Ask</button>
-    </form>
-    <div class="row" aria-label="Example questions">
-      <button type="button" class="secondary example">What is a p-value?</button>
-      <button type="button" class="secondary example">Why do urban areas flood more?</button>
-      <button type="button" class="secondary example">Who won the 1998 world cup?</button>
-    </div>
-    <div id="answer" aria-live="polite"></div>
-  </section>
+    <div class="page-r">
+      <section aria-labelledby="ask-h">
+        <h2 id="ask-h"><span class="wp" aria-hidden="true">2</span>Ask a question</h2>
+        <form id="ask-form" class="row">
+          <label for="question" class="sr-only">Question</label>
+          <input id="question" type="text" maxlength="500" placeholder="e.g. What is a p-value?" autocomplete="off">
+          <button type="submit">Ask</button>
+        </form>
+        <div class="row" aria-label="Example questions">
+          <button type="button" class="secondary example">What is a p-value?</button>
+          <button type="button" class="secondary example">Why do urban areas flood more?</button>
+          <button type="button" class="secondary example">Who won the 1998 world cup?</button>
+        </div>
+        <div id="answer" aria-live="polite"></div>
+      </section>
 
-  <section aria-labelledby="quiz-h">
-    <h2 id="quiz-h">3. Five-question sample quiz</h2>
-    <p class="status">Each question is built from one definition in your notes. The three wrong options are
-      real terms from your other definitions, never invented.</p>
-    <div class="row">
-      <button id="quiz-btn" type="button">New quiz</button>
+      <section aria-labelledby="quiz-h">
+        <h2 id="quiz-h"><span class="wp" aria-hidden="true">3</span>Five-question sample quiz</h2>
+        <p class="status">Each question is built from one definition in your notes. The three wrong options are
+          real terms from your other definitions, never invented.</p>
+        <div class="row">
+          <button id="quiz-btn" type="button">New quiz</button>
+        </div>
+        <form id="quiz-form"></form>
+        <div id="quiz-result" aria-live="polite"></div>
+      </section>
     </div>
-    <form id="quiz-form"></form>
-    <div id="quiz-result" aria-live="polite"></div>
-  </section>
+  </div>
 </main>
 
 <footer>
