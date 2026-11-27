@@ -242,7 +242,7 @@ function workRow(item) {
   const done = item.status !== 'open';
   const box = h('input', { type: 'checkbox', checked: done, 'aria-label': `Mark ${item.title} done`, onclick: e => e.stopPropagation(),
     onchange: async e => { await act(() => api(`/api/items/${encodeURIComponent(item.uid)}`, { method: 'PATCH', body: { status: e.target.checked ? 'done' : 'open' } })); route(); } });
-  return h('div', { class: `work kind-${item.kind} ${done ? 'done' : ''}`, vars: { '--c': item.course_color || 'var(--ink-3)' }, role: 'button', tabindex: '0',
+  return h('div', { class: `work ${done ? 'done' : ''}`, vars: { '--c': item.course_color || 'var(--ink-3)' }, role: 'button', tabindex: '0',
     onclick: () => openItem(item.uid), onkeydown: e => { if (e.key === 'Enter') openItem(item.uid); } },
   h('span', { class: 'bar' }), item.kind === 'exam' ? h('span', { title: 'Exam' }, icon('alert')) : box,
   h('div', { style: { minWidth: 0 } }, h('div', { class: 'work-title' }, item.title),
@@ -262,100 +262,16 @@ function workloadChart(forecast) {
   const bw = (W - pad * 2) / n;
   const y = v => H - 20 - (v / max) * (H - 36);
   const g = svg('svg', { class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Estimated hours of work due each week' });
-  g.append(svg('defs', {}, svg('pattern', { id: 'hatch-crunch', width: 5, height: 5, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' },
-    svg('rect', { width: 5, height: 5, fill: 'var(--bad-soft)' }), svg('line', { x1: 0, y1: 0, x2: 0, y2: 5, stroke: 'var(--route)', 'stroke-width': 2.2 }))));
-  for (const frac of [0.5, 1]) g.append(svg('line', { class: 'gridline', x1: pad, x2: W - pad, y1: y(max / 1.15 * frac), y2: y(max / 1.15 * frac), 'stroke-dasharray': '1 4' }));
   g.append(svg('line', { class: 'axis', x1: pad, x2: W - pad, y1: H - 20, y2: H - 20 }));
   forecast.forEach((f, i) => {
     const x = pad + i * bw + 6, bh = H - 20 - y(f.hours);
-    g.append(f.crunch
-      ? svg('rect', { x, y: y(f.hours), width: bw - 12, height: Math.max(bh, 1), fill: 'url(#hatch-crunch)', stroke: 'var(--route)', 'stroke-width': 1.2 })
-      : svg('rect', { x, y: y(f.hours), width: bw - 12, height: Math.max(bh, 1), fill: 'var(--accent)', opacity: 0.82 }));
+    g.append(svg('rect', { x, y: y(f.hours), width: bw - 12, height: Math.max(bh, 1), rx: 4, fill: f.crunch ? 'var(--bad)' : 'var(--accent)', opacity: f.crunch ? 0.85 : 0.75 }));
     g.append(svg('text', { x: x + (bw - 12) / 2, y: y(f.hours) - 4, 'text-anchor': 'middle' }, f.hours ? `${Math.round(f.hours)}h` : ''));
     const [yy, mm, dd] = f.week_of.split('-').map(Number);
     g.append(svg('text', { x: x + (bw - 12) / 2, y: H - 5, 'text-anchor': 'middle' }, new Date(yy, mm - 1, dd).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })));
   });
   if (forecast[0]) g.append(svg('line', { class: 'goal', x1: pad, x2: W - pad, y1: y(forecast[0].goal), y2: y(forecast[0].goal) }));
   return g;
-}
-// The Today compass: north is today, the seven days ahead run clockwise round the dial, each piece of
-// open work is a point in its day (exams are triangles), and the needle points at the next deadline.
-function compassRose(open) {
-  const N = 7, step = 360 / N, rad = deg => (deg - 90) * Math.PI / 180;
-  const at = (deg, r) => [Math.cos(rad(deg)) * r, Math.sin(rad(deg)) * r];
-  const pt = (deg, r) => at(deg, r).map(v => v.toFixed(2)).join(',');
-  const keys = [...Array(N)].map((_, k) => localKey(new Date(Date.now() + k * 864e5)));
-  const byDay = keys.map(() => []);
-  for (const it of open) { const k = keys.indexOf(localKey(dateOf(it.due))); if (k >= 0) byDay[k].push(it); }
-  const next = open.filter(i => dateOf(i.due) >= Date.now()).sort((a, b) => dateOf(a.due) - dateOf(b.due))[0];
-  const nextDay = next ? keys.indexOf(localKey(dateOf(next.due))) : -1;
-  const count = byDay.reduce((s, l) => s + l.length, 0);
-  const label = `Compass for the next 7 days: ${count} open item${count === 1 ? '' : 's'} due. ${next ? `The needle points at ${next.course_code || ''} ${next.title}, ${countdown(next.due)}.` : 'Nothing is due, so the needle rests on today.'}`;
-  const g = svg('svg', { class: 'rose', viewBox: '-118 -118 236 236', role: 'img', 'aria-label': label });
-  g.append(svg('circle', { class: 'r-paper', r: 112 }));
-  // today's wedge
-  const [ax, ay] = at(-step / 2, 82), [bx, by] = at(step / 2, 82);
-  g.append(svg('path', { class: 'r-today', d: `M0 0L${ax.toFixed(2)} ${ay.toFixed(2)}A82 82 0 0 1 ${bx.toFixed(2)} ${by.toFixed(2)}Z` }));
-  for (let k = 0; k < N; k++) g.append(svg('line', { class: 'r-sector', x1: 0, y1: 0, x2: at(k * step + step / 2, 82)[0].toFixed(2), y2: at(k * step + step / 2, 82)[1].toFixed(2), 'stroke-dasharray': '1 3' }));
-  g.append(svg('circle', { class: 'r-ring', r: 104 }), svg('circle', { class: 'r-ring', r: 82 }), svg('circle', { class: 'r-ring-2', r: 50 }));
-  for (let d = 0; d < 360; d += 5) { const long = d % 45 === 0; g.append(svg('line', { class: 'r-tick', x1: at(d, 104)[0].toFixed(2), y1: at(d, 104)[1].toFixed(2), x2: at(d, long ? 96 : 100)[0].toFixed(2), y2: at(d, long ? 96 : 100)[1].toFixed(2) })); }
-  keys.forEach((key, k) => {
-    const [x, y] = at(k * step, 91);
-    const [yy, mm, dd] = key.split('-').map(Number);
-    const name = k === 0 ? 'Today' : new Date(yy, mm - 1, dd).toLocaleDateString(undefined, { weekday: 'short' });
-    g.append(svg('text', { class: `r-day ${k === 0 ? 'today' : ''}`, x: x.toFixed(2), y: (y + 3.5).toFixed(2), 'text-anchor': 'middle' }, name));
-  });
-  // the star: four long points, four short, half shaded like an engraved rose
-  for (let d = 0; d < 360; d += 45) {
-    const long = d % 90 === 0, L = long ? 46 : 26, w = long ? 7 : 5;
-    g.append(svg('polygon', { class: long ? 'r-star-a' : 'r-star-c', points: `0,0 ${pt(d, L)} ${pt(d + 90, w)}` }),
-      svg('polygon', { class: long ? 'r-star-b' : 'r-star-c', points: `0,0 ${pt(d, L)} ${pt(d - 90, w)}` }));
-  }
-  byDay.forEach((list, k) => {
-    list.slice(0, 4).forEach((it, j) => {
-      const deg = k * step + (j % 2 ? 7 : -7) * (list.length > 1 ? 1 : 0), r = 72 - j * 9;
-      const [x, y] = at(deg, r);
-      const tip = svg('title', {}, `${it.course_code || 'Personal'} ${it.title}, ${it.all_day ? fmtDay(it.due) : fmtDayTime(it.due)}`);
-      g.append(it.kind === 'exam'
-        ? svg('polygon', { class: 'r-pt', fill: it.course_color || 'var(--ink-3)', points: `${x.toFixed(2)},${(y - 6.5).toFixed(2)} ${(x + 6).toFixed(2)},${(y + 4.5).toFixed(2)} ${(x - 6).toFixed(2)},${(y + 4.5).toFixed(2)}` }, tip)
-        : svg('circle', { class: 'r-pt', fill: it.course_color || 'var(--ink-3)', cx: x.toFixed(2), cy: y.toFixed(2), r: 5 }, tip));
-    });
-    if (list.length > 4) { const [x, y] = at(k * step, 34); g.append(svg('text', { class: 'r-more', x: x.toFixed(2), y: (y + 3).toFixed(2), 'text-anchor': 'middle' }, `+${list.length - 4}`)); }
-  });
-  const bearing = nextDay >= 0 ? nextDay * step : 0;
-  g.append(svg('g', { transform: `rotate(${bearing})` }, svg('g', { class: 'r-needle-g' },
-    svg('polygon', { class: 'r-needle', points: '0,-66 5.5,0 -5.5,0' }), svg('polygon', { class: 'r-needle-tail', points: '0,20 4,0 -4,0' }))));
-  g.append(svg('circle', { class: 'r-hub', r: 4.5 }));
-  return g;
-}
-// A course is a map sheet: contour lines drawn from the course id, so each course keeps the same terrain.
-function contourMap(seed) {
-  let s = (Number(seed) || 1) * 9301 + 49297;
-  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
-  const cx = 60 + rnd() * 180, cy = 30 + rnd() * 50, p1 = rnd() * 6.28, p2 = rnd() * 6.28, squash = 0.45 + rnd() * 0.2;
-  const g = svg('svg', { viewBox: '0 0 300 96', preserveAspectRatio: 'xMidYMid slice', 'aria-hidden': 'true' });
-  for (let k = 1; k <= 9; k++) {
-    const base = k * 15;
-    let d = '';
-    for (let i = 0; i <= 48; i++) {
-      const a = i / 48 * Math.PI * 2;
-      const r = base * (1 + 0.16 * Math.sin(3 * a + p1 + k * 0.25) + 0.08 * Math.sin(5 * a + p2));
-      d += `${i ? 'L' : 'M'}${(cx + Math.cos(a) * r).toFixed(1)} ${(cy + Math.sin(a) * r * squash).toFixed(1)}`;
-    }
-    g.append(svg('path', { d: `${d}Z`, class: k % 4 === 0 ? 'index' : '' }));
-  }
-  return g;
-}
-// How well a topic is charted: filled ground is what you have got right, the hatched rest is unexplored.
-// Below 50% the topic is weaker than one never seen (the review model scores an unseen topic at 0.5).
-function terrain(acc, attempts) {
-  return h('span', { class: `terrain ${acc == null ? 'uncharted' : ''}` },
-    h('span', { class: 'num' }, acc != null ? `${acc}%${attempts != null ? ` (${attempts})` : ''}` : '–'),
-    h('span', { class: 'ground', 'aria-hidden': 'true' }, h('span', { style: { width: `${Math.max(0, Math.min(100, acc ?? 0))}%` } })));
-}
-function terrainNote(acc) {
-  if (acc == null) return h('span', { class: 'terra' }, 'uncharted');
-  return acc < 50 ? h('span', { class: 'terra' }, 'unexplored terrain') : null;
 }
 function card(title, actions, ...body) {
   return h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title), actions || null), ...body);
@@ -487,7 +403,7 @@ async function viewToday() {
   const nextExam = d.exams[0];
   const week = d.week;
   const greeting = (() => { const hr = Number(fmt(new Date().toISOString(), { hour: 'numeric', hourCycle: 'h23' })); return hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'; })();
-  const tiles = h('div', { class: 'tiles today-tiles' },
+  const tiles = h('div', { class: 'tiles' },
     h('div', { class: 'tile' }, h('div', { class: 'label' }, 'Due in 7 days'), h('div', { class: 'value' }, thisWeek.length), h('div', { class: 'foot' }, `${hoursText(thisWeek.reduce((s, i) => s + (i.est_hours || 0), 0)) || '0h'} of work`)),
     h('div', { class: `tile ${d.overdue.length ? 'alert' : ''}` }, h('div', { class: 'label' }, 'Overdue'), h('div', { class: 'value' }, d.overdue.length), h('div', { class: 'foot' }, d.overdue.length ? 'Not marked done' : 'All clear')),
     h('div', { class: 'tile' }, h('div', { class: 'label' }, 'Next exam'), h('div', { class: 'value' }, nextExam ? countdown(nextExam.due).replace('in ', '') : '–'), h('div', { class: 'foot' }, nextExam ? `${nextExam.course_code || ''} ${nextExam.title}` : 'None scheduled')),
@@ -512,20 +428,12 @@ async function viewToday() {
     d.announcements.length ? d.announcements.slice(0, 4).map(a => h('div', { class: `news ${a.read ? '' : 'unread'}` }, h('div', { class: 'row' }, chip(a.course_code, a.course_color), h('span', { class: 'muted tiny' }, ago(a.posted))), h('div', { class: 'news-title' }, a.title), h('div', { class: 'muted small' }, (a.body_text || '').slice(0, 140))))
       : emptyState('No announcements yet.'));
   const changes = card('What changed', null, d.changes.length ? d.changes.slice(0, 5).map(changeRow) : emptyState('Nothing new since the last sync.'));
-  const workload = card('Workload ahead', h('span', { class: 'legend' }, h('span', { vars: { '--c': 'var(--accent)' } }, 'est. hours due'), h('span', { class: 'hatch', vars: { '--c': 'var(--route)' } }, 'over your goal')),
+  const workload = card('Workload ahead', h('span', { class: 'legend' }, h('span', { vars: { '--c': 'var(--accent)' } }, 'est. hours due'), h('span', { vars: { '--c': 'var(--bad)' } }, 'over your goal')),
     workloadChart(d.forecast), d.forecast.some(f => f.crunch) ? h('div', { class: 'callout warn small', style: { marginTop: '8px' } }, `Crunch week ahead: ${d.forecast.filter(f => f.crunch).map(f => `week of ${f.week_of}`).join(', ')}. The planner starts that work early.`) : null);
 
-  const nextUp = open.filter(i => dateOf(i.due) >= now).sort((x, y) => dateOf(x.due) - dateOf(y.due))[0];
-  const head = h('header', { class: 'compass-head' },
-    h('figure', { class: 'rose-fig' }, compassRose(thisWeek), h('figcaption', { class: 'rose-cap' }, 'North is today. Points are work due each day, triangles are exams.')),
-    h('div', { class: 'head-text' },
-      h('div', { class: 'title-block' }, h('h1', {}, greeting), h('div', { class: 'date' }, new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone: S.tz }))),
-      h('p', { class: 'bearing' }, h('span', { class: 'mark', 'aria-hidden': 'true' }),
-        nextUp ? ['Next waypoint: ', h('b', {}, `${nextUp.course_code ? `${nextUp.course_code} ` : ''}${nextUp.title}`), `, ${nextUp.all_day ? fmtDay(nextUp.due) : fmtDayTime(nextUp.due)}, ${countdown(nextUp.due)}.`]
-          : 'No waypoints this week. North on the dial is today; work due in the next seven days appears around it.'),
-      h('div', { class: 'head-actions' }, h('button', { class: 'btn', onclick: openPalette }, 'Search'), h('button', { class: 'btn primary', onclick: startSync, disabled: S.app.sync?.running }, icon('sync'), 'Sync LEARN'))));
-
-  return [head, demoBanner(), tiles,
+  return [pageHead(`${greeting}`, new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone: S.tz }),
+    h('button', { class: 'btn', onclick: openPalette }, 'Search'), h('button', { class: 'btn primary', onclick: startSync, disabled: S.app.sync?.running }, icon('sync'), 'Sync LEARN')),
+  demoBanner(), tiles,
   h('div', { class: 'grid cols-2' }, h('div', { class: 'stack' }, dueCard, workload), h('div', { class: 'stack' }, plan, news, changes))];
 }
 
@@ -640,11 +548,10 @@ async function viewCourses() {
       const unread = full ? full.announcements.filter(a => !a.read).length : 0;
       const pct = full?.standing?.current_percent;
       return h('a', { class: 'course-card', href: `#/courses/${c.id}`, vars: { '--c': c.color } },
-        h('div', { class: 'map' }, contourMap(c.id), h('div', { class: 'cartouche' }, h('div', { class: 'code' }, c.code))),
-        h('div', { class: 'body' }, h('div', { class: 'name' }, c.name),
-          h('dl', {}, h('dt', {}, 'Next due'), h('dd', {}, next ? `${next.title} · ${countdown(next.due)}` : 'Nothing this week'),
-            h('dt', {}, 'Current grade'), h('dd', {}, pct != null ? `${pct.toFixed(1)}%` : '–'),
-            h('dt', {}, 'Announcements'), h('dd', {}, unread ? `${unread} unread` : 'All read'))));
+        h('div', { class: 'code' }, c.code), h('div', { class: 'name' }, c.name),
+        h('dl', {}, h('dt', {}, 'Next due'), h('dd', {}, next ? `${next.title} · ${countdown(next.due)}` : 'Nothing this week'),
+          h('dt', {}, 'Current grade'), h('dd', {}, pct != null ? `${pct.toFixed(1)}%` : '–'),
+          h('dt', {}, 'Announcements'), h('dd', {}, unread ? `${unread} unread` : 'All read')));
     }))];
 }
 
@@ -749,8 +656,8 @@ function courseSyllabus(d) {
   return h('div', { class: 'grid cols-2' },
     h('div', { class: 'stack' },
       card('Grading scheme', h('span', { class: `pill ${Math.abs(p.total_weight - 100) < 0.5 ? 'good' : 'warn'}` }, `${p.total_weight}% total`),
-        p.components.length ? p.components.map(c => h('div', { class: 'kv-row' }, h('div', { class: 'spread' }, h('b', {}, c.name), h('span', { class: 'num' }, `${c.weight}%`)), quote(c.quote))) : emptyState('No weights found in the outline.')),
-      card('Key dates', null, p.dates.length ? p.dates.map(x => h('div', { class: 'kv-row' }, h('div', { class: 'spread' }, h('b', {}, x.label), h('span', { class: 'num small' }, `${x.date}${x.start_time ? ` ${x.start_time}${x.end_time ? `–${x.end_time}` : ''}` : ''}`)), quote(x.quote))) : emptyState('No dates found.'))),
+        p.components.length ? p.components.map(c => h('div', { style: { padding: '6px 0', borderBottom: '1px solid var(--line)' } }, h('div', { class: 'spread' }, h('b', {}, c.name), h('span', { class: 'num' }, `${c.weight}%`)), quote(c.quote))) : emptyState('No weights found in the outline.')),
+      card('Key dates', null, p.dates.length ? p.dates.map(x => h('div', { style: { padding: '6px 0', borderBottom: '1px solid var(--line)' } }, h('div', { class: 'spread' }, h('b', {}, x.label), h('span', { class: 'num small' }, `${x.date}${x.start_time ? ` ${x.start_time}${x.end_time ? `–${x.end_time}` : ''}` : ''}`)), quote(x.quote))) : emptyState('No dates found.'))),
     h('div', { class: 'stack' },
       card('People', null, p.contacts.length ? p.contacts.map(x => h('div', { class: 'small', style: { padding: '4px 0' } }, h('b', {}, x.role), ': ', x.name ? `${x.name} · ` : '', h('a', { href: `mailto:${x.email}` }, x.email))) : emptyState('No contacts found.'),
         p.office_hours.map(o => h('div', { class: 'small', style: { marginTop: '8px' } }, h('b', {}, 'Office hours: '), o.quote))),
@@ -761,9 +668,9 @@ function courseNotes(d) {
   const topics = Object.entries(d.topics);
   const link = (tab, topic, label) => h('a', { class: 'btn sm', href: `#/study/${tab}?topic=${encodeURIComponent(topic)}&course=${d.course.id}` }, label);
   const rows = topics.map(([topic, t]) => h('tr', {},
-    h('td', {}, t.title, terrainNote(t.accuracy), h('div', { class: 'tiny muted' }, t.source)),
+    h('td', {}, t.title, h('div', { class: 'tiny muted' }, t.source)),
     h('td', { class: 'r num' }, t.chunks),
-    h('td', { class: 'r' }, terrain(t.accuracy, t.attempts)),
+    h('td', { class: 'r num' }, t.accuracy != null ? `${t.accuracy}% (${t.attempts})` : '–'),
     h('td', { class: 'r' }, h('div', { class: 'row', style: { justifyContent: 'flex-end' } }, link('explain', topic, 'Explain'), link('practice', topic, 'Quiz')))));
   const head = h('thead', {}, h('tr', {}, h('th', {}, 'Topic'), h('th', { class: 'r' }, 'Passages'), h('th', { class: 'r' }, 'Quiz accuracy'), h('th')));
   const body = topics.length
@@ -774,23 +681,9 @@ function courseNotes(d) {
 
 // ---------- study
 function sourcesList(sources) {
-  // Each passage is pinned in the margin; hovering or focusing a citation in the text lights up its note.
   if (!sources?.length) return null;
-  return h('aside', { class: 'margin', 'aria-label': 'Passages from your notes' },
-    h('div', { class: 'margin-head' }, `${sources.length} passage${sources.length === 1 ? '' : 's'} pinned from your notes`),
-    sources.map(s => h('div', { class: 'source', dataset: { chunk: s.id } }, h('div', { class: 'src-head' }, h('span', {}, s.id), h('span', {}, s.score != null ? `score ${s.score}` : '')),
-      h('div', { class: 'src-path' }, `${s.source} › ${s.heading}`), s.text ? h('div', { class: 'src-text' }, renderText(s.text, () => {})) : null)));
-}
-function sheet(body, sources) { // the answer on the left, its passages pinned in the margin on the right
-  const margin = sourcesList(sources);
-  return margin ? h('div', { class: 'sheet' }, h('div', { style: { minWidth: 0 } }, body), margin) : h('div', {}, body);
-}
-function lightCitation(e, on) {
-  const b = e.target.closest?.('.cite');
-  if (!b) return;
-  const sel = `.source[data-chunk="${CSS.escape(b.textContent)}"]`;
-  b.classList.toggle('lit', on);
-  for (let p = b.parentElement; p && p !== document.body; p = p.parentElement) { const n = p.querySelector(sel); if (n) { n.classList.toggle('lit', on); return; } }
+  return h('details', { style: { marginTop: '12px' } }, h('summary', { class: 'small muted' }, `${sources.length} passage(s) from your notes`), h('div', { class: 'stack', style: { gap: '8px', marginTop: '8px' } },
+    sources.map(s => h('div', { class: 'source' }, h('div', { class: 'src-head' }, h('span', {}, s.id), h('span', {}, s.score != null ? `score ${s.score}` : '')), h('div', { class: 'tiny muted' }, `${s.source} › ${s.heading}`), s.text ? h('pre', {}, s.text) : null))));
 }
 function askBox(courseId) {
   const q = h('input', { type: 'text', placeholder: 'Ask anything about this course…', 'aria-label': 'Question' });
@@ -801,8 +694,8 @@ function askBox(courseId) {
     clear(out).append(h('div', { class: 'row muted small', style: { marginTop: '12px' } }, h('span', { class: 'spinner' }), 'Looking in your notes…'));
     try {
       const r = await api('/api/ask', { method: 'POST', body: { question: q.value, course: courseId || null } });
-      clear(out).append(h('div', { style: { marginTop: '16px' } }, sheet([h('div', { class: `label-line ${r.mode === 'local' ? 'local' : ''}` }, r.label),
-        r.mode === 'refusal' ? h('div', { class: 'callout warn' }, r.text) : h('div', { class: 'answer', style: { whiteSpace: r.mode === 'local' ? 'pre-wrap' : 'normal' } }, renderText(r.text))], r.hits)));
+      clear(out).append(h('div', { style: { marginTop: '14px' } }, h('div', { class: `label-line ${r.mode === 'local' ? 'local' : ''}` }, r.label),
+        r.mode === 'refusal' ? h('div', { class: 'callout warn' }, r.text) : h('div', { class: 'answer', style: { whiteSpace: r.mode === 'local' ? 'pre-wrap' : 'normal' } }, renderText(r.text)), sourcesList(r.hits)));
     } catch (err) { clear(out).append(h('div', { class: 'callout bad', style: { marginTop: '12px' } }, err.message)); }
   } }, h('div', { style: { flex: 1, minWidth: '200px' } }, q), h('button', { class: 'btn primary', type: 'submit' }, 'Ask'));
   return card('Ask your notes', h('span', { class: 'muted tiny' }, 'Answers only from your notes, with citations'), form, out);
@@ -834,8 +727,8 @@ function studyExplain(params) {
       if (kind === 'simplify') {
         out.append(r.mode === 'refusal' ? h('div', { class: 'callout warn' }, r.note) : h('div', { class: 'stack' },
           h('div', { class: `label-line ${r.mode === 'local' ? 'local' : ''}` }, r.header), r.note ? h('div', { class: 'callout warn small' }, r.note) : null,
-          sheet(h('div', { class: 'stack' }, card(r.mode === 'llm' ? 'The simple version' : 'Key sentences', null, h('div', { class: 'answer' }, renderText(r.simple))),
-            card(r.mode === 'llm' ? 'Full depth' : 'The notes, verbatim', null, h('div', { class: 'answer', style: { whiteSpace: r.mode === 'llm' ? 'normal' : 'pre-wrap' } }, renderText(r.full)))), r.sources)));
+          card(r.mode === 'llm' ? 'The simple version' : 'Key sentences', null, h('div', { class: 'answer' }, renderText(r.simple))),
+          card(r.mode === 'llm' ? 'Full depth' : 'The notes, verbatim', null, h('div', { class: 'answer', style: { whiteSpace: r.mode === 'llm' ? 'normal' : 'pre-wrap' } }, renderText(r.full))), sourcesList(r.sources)));
       } else {
         out.append(h('div', { class: 'stack' }, h('div', { class: `label-line ${r.mode !== 'llm' ? 'local' : ''}` }, r.header), r.note ? h('div', { class: 'callout warn small' }, r.note) : null,
           r.examples.map(e => h('div', { class: 'card flat' }, h('span', { class: `pill ${e.kind === 'grounded' ? 'good' : 'info'}` }, e.kind === 'grounded' ? 'From your notes' : 'Illustrative, not from your notes'),
@@ -927,7 +820,7 @@ async function studyPractice(params) {
       h('div', { class: 'row', style: { marginTop: '12px' } }, h('button', { class: 'btn primary', onclick: () => start('quiz') }, 'Start quiz'), h('button', { class: 'btn', onclick: () => start('review') }, `Review due cards (${s.due_cards})`), h('button', { class: 'btn', onclick: () => start('cram') }, 'Cram weakest topics'))),
     stage,
     progress.length ? card('How you are doing', null, h('div', { class: 'table-wrap' }, h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Topic'), h('th', { class: 'r' }, 'Accuracy'), h('th', {}, 'Trend'), h('th', {}, 'Advice'))),
-      h('tbody', {}, progress.map(p => h('tr', {}, h('td', {}, s.topics[p.topic]?.title || p.topic, terrainNote(p.accuracy), h('div', { class: 'tiny muted' }, s.topics[p.topic]?.course || '')), h('td', { class: 'r' }, terrain(p.accuracy)), h('td', { class: 'small' }, p.trend), h('td', { class: 'small muted' }, p.advice))))))) : null);
+      h('tbody', {}, progress.map(p => h('tr', {}, h('td', {}, s.topics[p.topic]?.title || p.topic, h('div', { class: 'tiny muted' }, s.topics[p.topic]?.course || '')), h('td', { class: 'r num' }, `${p.accuracy}%`), h('td', { class: 'small' }, p.trend), h('td', { class: 'small muted' }, p.advice))))))) : null);
 }
 function quizRunner(label, items) {
   let i = 0, right = 0;
@@ -986,7 +879,7 @@ async function studyExams() {
             h('a', { class: 'btn sm', href: '#/study/practice' }, 'Go practise')))));
     } catch (err) { clear(out).append(h('div', { class: 'callout bad' }, err.message)); }
   };
-  const list = card('Upcoming exams', null, exams.map(e => h('div', { class: 'work', vars: { '--c': e.course_color }, style: { gridTemplateColumns: '16px minmax(0,1fr) auto' }, role: 'button', tabindex: '0', onclick: () => load(e.uid), onkeydown: ev => { if (ev.key === 'Enter') load(e.uid); } },
+  const list = card('Upcoming exams', null, exams.map(e => h('div', { class: 'work', vars: { '--c': e.course_color }, style: { gridTemplateColumns: '4px minmax(0,1fr) auto' }, onclick: () => load(e.uid) },
     h('span', { class: 'bar' }), h('div', {}, h('div', { class: 'work-title' }, `${e.course_code || ''} ${e.title}`), h('div', { class: 'work-meta' }, fmtDayTime(e.due), e.location || '', e.source === 'syllabus' ? 'from the outline' : '')), h('div', { class: `work-right ${urgency(e.due)}` }, countdown(e.due)))));
   setTimeout(() => load(exams[0].uid), 0);
   return h('div', { class: 'stack' }, list, out);
@@ -1090,7 +983,7 @@ async function viewTime(params) {
     h('div', { class: 'grid cols-2' }, h('div', { class: 'stack' }, timer, card('Hours by day', null, chart)), h('div', { class: 'stack' }, byCourse,
       card('Log time by hand', null, h('form', { class: 'form-grid', onsubmit: async e => { e.preventDefault(); await act(() => api('/api/time/log', { method: 'POST', body: { course_id: logCourse.value || null, minutes: logMin.value, start: new Date(Date.now() - logMin.value * 60e3).toISOString() } }), 'Logged'); route(); } },
         h('label', { class: 'field' }, 'Course', logCourse), h('label', { class: 'field' }, 'Minutes', logMin), h('button', { class: 'btn', type: 'submit', style: { alignSelf: 'end' } }, 'Log'))),
-      card('Recent sessions', null, r.sessions.length ? r.sessions.slice(0, 10).map(s => h('div', { class: 'spread small kv-row' }, h('span', {}, chip(s.course_code, s.course_color), ' ', s.item_title || s.note || ''), h('span', { class: 'muted num' }, `${fmtDay(s.start)} · ${s.end ? hoursText((dateOf(s.end) - dateOf(s.start)) / 3600e3) : 'running'}`))) : emptyState('No sessions yet.'))))];
+      card('Recent sessions', null, r.sessions.length ? r.sessions.slice(0, 10).map(s => h('div', { class: 'spread small', style: { padding: '5px 0', borderBottom: '1px solid var(--line)' } }, h('span', {}, chip(s.course_code, s.course_color), ' ', s.item_title || s.note || ''), h('span', { class: 'muted num' }, `${fmtDay(s.start)} · ${s.end ? hoursText((dateOf(s.end) - dateOf(s.start)) / 3600e3) : 'running'}`))) : emptyState('No sessions yet.'))))];
 }
 
 // ---------- inbox
@@ -1147,7 +1040,7 @@ async function viewSettings() {
           h('label', { class: 'field', style: { marginTop: '12px' } }, 'Phone push through ntfy (optional)', ntfy), h('p', { class: 'tiny muted', style: { marginTop: '6px' } }, 'Only a short title such as "STAT 230: Assignment 4 moved" is sent, never announcement text or grades. Use a long random topic name.'),
           h('button', { class: 'btn', onclick: () => save({ notify_macos: macos.checked, ntfy_url: ntfy.value.trim() }) }, 'Save')),
         card('Focus timer', null, h('div', { class: 'form-grid' }, h('label', { class: 'field' }, 'Focus minutes', focus), h('label', { class: 'field' }, 'Break minutes', brk)), h('button', { class: 'btn', style: { marginTop: '10px' }, onclick: () => save({ focus_minutes: focus.value, break_minutes: brk.value }) }, 'Save')),
-        card('Courses', null, (a.courses || []).map(c => h('div', { class: 'spread kv-row' }, chip(c.code, c.color),
+        card('Courses', null, (a.courses || []).map(c => h('div', { class: 'spread', style: { padding: '6px 0', borderBottom: '1px solid var(--line)' } }, chip(c.code, c.color),
           h('div', { class: 'row' }, h('input', { type: 'color', value: c.color, 'aria-label': `Colour for ${c.code}`, onchange: async e => { await api(`/api/courses/${c.id}`, { method: 'PATCH', body: { color: e.target.value } }); await refreshState(); } }),
             h('button', { class: 'btn sm', onclick: async () => { await act(() => api(`/api/courses/${c.id}`, { method: 'PATCH', body: { hidden: true } }), `${c.code} hidden`); await refreshState(); route(); } }, 'Hide'))))),
         card('Appearance', null, h('div', { class: 'seg' }, [['', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => h('button', { 'aria-pressed': String((localStorageGet('theme') || '') === v), onclick: () => { setTheme(v); route(); } }, l))))))];
@@ -1189,10 +1082,6 @@ document.addEventListener('keydown', e => {
   else if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { e.preventDefault(); openPalette(); }
 });
 document.addEventListener('click', e => { if (e.target.closest('[data-action="palette"]')) openPalette(); });
-document.addEventListener('mouseover', e => lightCitation(e, true));
-document.addEventListener('mouseout', e => lightCitation(e, false));
-document.addEventListener('focusin', e => lightCitation(e, true));
-document.addEventListener('focusout', e => lightCitation(e, false));
 window.addEventListener('hashchange', () => { route(); main.focus({ preventScroll: true }); window.scrollTo(0, 0); });
 
 (async function boot() {

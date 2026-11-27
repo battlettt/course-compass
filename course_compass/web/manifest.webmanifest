@@ -4,8 +4,8 @@
   "description": "Your school hub: LEARN courses, deadlines, grades, study plan and tutor.",
   "start_url": "/#/today",
   "display": "standalone",
-  "background_color": "#e9ece3",
-  "theme_color": "#1d5670",
+  "background_color": "#f6f5f1",
+  "theme_color": "#2f5bd3",
   "icons": [
     {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"},
     {"src": "/icon-180.png", "sizes": "180x180", "type": "image/png"},
